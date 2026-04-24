@@ -50,3 +50,11 @@ matplotlib
 pdfplumber
 python-docx
 openpyxl
+streamlit
+pandas
+matplotlib
+pdfplumber
+python-docx
+openpyxl
+sqlite3
+hashlib

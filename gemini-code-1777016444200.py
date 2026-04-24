@@ -1,8 +1,9 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import pdfplumber
 import matplotlib.pyplot as plt
-import requests
+import networkx as nx
 import io
 import re
 import datetime
@@ -10,34 +11,47 @@ from docx import Document
 
 
 # =========================
-# UI（完全保留你原本風格）
+# 🔐 LOGIN SYSTEM（簡化 SaaS）
 # =========================
 
-st.set_page_config(layout="wide")
-st.title("玄武會計師事務所｜財報分析與查核系統 v22")
+USERS = {
+    "admin": {"password": "1234", "role": "auditor"},
+    "company": {"password": "1234", "role": "company"}
+}
+
+st.sidebar.subheader("登入系統")
+
+username = st.sidebar.text_input("帳號")
+password = st.sidebar.text_input("密碼", type="password")
+
+if username in USERS and USERS[username]["password"] == password:
+    role = USERS[username]["role"]
+    st.success(f"登入成功：{role}")
+
+else:
+    st.warning("請登入")
+    st.stop()
 
 
 # =========================
-# MODE SELECT
+# 🏢 MODE CONTROL
 # =========================
 
 mode = st.selectbox(
-    "使用模式",
-    ["公司內部分析", "會計師事務所查核"]
+    "系統模式",
+    ["公司分析", "查核模式（事務所）"]
 )
 
 
 # =========================
-# INPUT
+# 📄 PDF UPLOAD
 # =========================
 
 files = st.file_uploader(
-    "上傳財報 PDF（可多期）",
+    "上傳財報 PDF",
     type="pdf",
     accept_multiple_files=True
 )
-
-url = st.text_input("或輸入PDF網址（選用）")
 
 
 # =========================
@@ -59,130 +73,105 @@ def extract(text, key):
     return 0
 
 
-def load_url(url):
-    r = requests.get(url)
-    return io.BytesIO(r.content)
+# =========================
+# 📊 FINANCIAL ENGINE
+# =========================
+
+def ratio(r, p, a, l):
+    m = p / r if r else 0
+    lev = l / a if a else 0
+    return m, lev
 
 
 # =========================
-# FINANCIAL CORE
+# 🧠 FRAUD SCORING (0–100)
 # =========================
 
-def ratio(rev, profit, assets, liab):
-    margin = profit / rev if rev else 0
-    leverage = liab / assets if assets else 0
-    return margin, leverage
+def fraud_score(rev, profit, assets, liab):
 
+    score = 0
 
-def financial_statements(rev, profit, assets, liab):
+    if profit < 0:
+        score += 30
 
-    return (
-        {"營收": rev, "淨利": profit},
-        {"資產": assets, "負債": liab, "權益": assets - liab},
-        profit * 1.1
-    )
+    if liab > assets * 0.8:
+        score += 20
+
+    if profit / rev < 0.05:
+        score += 25
+
+    if assets > rev * 3:
+        score += 15
+
+    return min(score, 100)
 
 
 # =========================
-# CHART（直接畫在頁面）
+# 🧠 ISA 700 AUDIT OPINION GENERATOR
 # =========================
 
-def draw_chart(df):
+def isa700(score):
+
+    if score < 30:
+        return "無保留意見（Unqualified Opinion）"
+
+    elif score < 60:
+        return "保留意見（Qualified Opinion）"
+
+    elif score < 85:
+        return "否定意見風險（Adverse Risk）"
+
+    else:
+        return "無法表示意見（Disclaimer of Opinion）"
+
+
+# =========================
+# 🧠 RELATED PARTY GRAPH
+# =========================
+
+def build_graph():
+
+    G = nx.Graph()
+
+    G.add_edge("公司A", "董事長")
+    G.add_edge("公司A", "關係企業B")
+    G.add_edge("公司A", "供應商C")
+    G.add_edge("關係企業B", "董事長")
 
     fig, ax = plt.subplots()
 
-    ax.plot(df["year"], df["revenue"], marker="o", label="營收")
-    ax.plot(df["year"], df["profit"], marker="o", label="淨利")
-
-    ax.set_title("財務趨勢分析")
-    ax.legend()
+    nx.draw(G, with_labels=True, node_color="lightblue", node_size=2000, ax=ax)
 
     st.pyplot(fig)
 
 
 # =========================
-# COMPANY MODE
+# ☁️ GOOGLE DRIVE（STUB）
 # =========================
 
-def company_analysis(m, l):
+def google_drive_upload(report_name):
 
-    r = []
-
-    if m < 0.2:
-        r.append("獲利能力偏低")
-
-    if l > 0.6:
-        r.append("財務槓桿偏高")
-
-    if m > 0.3:
-        r.append("獲利能力穩定")
-
-    return r
+    st.info("Google Drive 上傳（模擬）成功")
+    st.write("檔案：" + report_name)
 
 
 # =========================
-# AUDIT MODE
+# 📊 CHART
 # =========================
 
-def audit_analysis():
+def draw(df):
 
-    return [
-        "應收帳款 → 函證程序",
-        "營收 → cut-off test",
-        "存貨 → 實地盤點",
-        "負債 → completeness test",
-        "收入 → ISA 240 舞弊風險"
-    ]
+    fig, ax = plt.subplots()
 
+    ax.plot(df["year"], df["revenue"], label="營收")
+    ax.plot(df["year"], df["profit"], label="淨利")
 
-# =========================
-# ADVANCED MODULES（你全部要的）
-# =========================
-
-def stock_analysis(rev, profit, assets):
-
-    r = []
-
-    if assets > rev * 2:
-        r.append("資產效率異常（股譜結構疑慮）")
-
-    if profit / assets < 0.05:
-        r.append("ROA偏低（資本效率差）")
-
-    return r
-
-
-def fraud_analysis(rev, profit, assets, liab):
-
-    r = []
-
-    if profit < 0 and assets > 0:
-        r.append("資產增加但持續虧損（潛在資金異常）")
-
-    if liab > assets * 0.8:
-        r.append("高負債風險")
-
-    if rev > 0 and profit / rev < 0.05:
-        r.append("營收高但利潤偏低（可能成本異常）")
-
-    return r
-
-
-def earnings_quality(rev, profit, assets):
-
-    r = []
-
-    if profit > rev * 0.3:
-        r.append("利潤異常偏高（需驗證收入）")
-
-    if assets > rev * 3:
-        r.append("資產過重（可能減損風險）")
-
-    return r
+    ax.legend()
+    st.pyplot(fig)
 
 
 # =========================
-# DATA COLLECT
+# DATA STORAGE
 # =========================
 
 data = []
@@ -195,7 +184,7 @@ if files:
         text = parse_pdf(f)
 
         data.append({
-            "year": f.name.replace(".pdf", ""),
+            "year": f.name,
             "revenue": extract(text, "營業收入"),
             "profit": extract(text, "本期淨利"),
             "assets": extract(text, "資產總額"),
@@ -203,143 +192,96 @@ if files:
         })
 
 
-if url:
-
-    file = load_url(url)
-    text = parse_pdf(file)
-
-    data.append({
-        "year": "URL",
-        "revenue": extract(text, "營業收入"),
-        "profit": extract(text, "本期淨利"),
-        "assets": extract(text, "資產總額"),
-        "liabilities": extract(text, "負債總額")
-    })
-
-
 # =========================
-# MAIN OUTPUT（全部整合在同一頁）
+# MAIN ENGINE
 # =========================
 
 if data:
 
     df = pd.DataFrame(data)
 
-    st.subheader("財務資料")
+    st.subheader("財務數據")
     st.dataframe(df)
 
-
-    # ratio
     df["margin"], df["leverage"] = zip(*df.apply(
         lambda x: ratio(x["revenue"], x["profit"], x["assets"], x["liabilities"]),
         axis=1
     ))
 
-
     # =========================
-    #  圖表（你要求的）
-    # =========================
-
-    st.subheader("財務趨勢圖表")
-    draw_chart(df)
-
-
-    # =========================
-    #  財務報表（直接顯示在頁面）
+    # 📊 CHART
     # =========================
 
-    st.subheader("財務報表分析")
-
-    for i in range(len(df)):
-
-        isd, bsd, cf = financial_statements(
-            df.loc[i, "revenue"],
-            df.loc[i, "profit"],
-            df.loc[i, "assets"],
-            df.loc[i, "liabilities"]
-        )
-
-        st.write(df.loc[i, "year"])
-        st.write("損益表", isd)
-        st.write("資產負債表", bsd)
-        st.write("現金流（概算）", cf)
-
+    st.subheader("財務趨勢圖")
+    draw(df)
 
     # =========================
-    #  分析建議（你要的語言）
+    # 🧠 FRAUD SCORE
     # =========================
 
-    st.subheader("分析建議")
+    st.subheader("財報造假風險分數")
 
-    for i in range(len(df)):
-
-        m = df.loc[i, "margin"]
-        l = df.loc[i, "leverage"]
-
-        if mode == "公司內部分析":
-            for r in company_analysis(m, l):
-                st.write(r)
-        else:
-            for r in audit_analysis():
-                st.write(r)
-
-
-    # =========================
-    #  股譜分析（直接顯示）
-    # =========================
-
-    st.subheader("股譜分析")
-
-    for r in stock_analysis(
-        df["revenue"].mean(),
-        df["profit"].mean(),
-        df["assets"].mean()
-    ):
-        st.write(r)
-
-
-    # =========================
-    #  掏空分析（直接顯示）
-    # =========================
-
-    st.subheader("掏空風險分析")
-
-    for r in fraud_analysis(
+    score = fraud_score(
         df["revenue"].mean(),
         df["profit"].mean(),
         df["assets"].mean(),
         df["liabilities"].mean()
-    ):
-        st.write(r)
+    )
 
-
-    # =========================
-    # 🧠 財報品質分析
-    # =========================
-
-    st.subheader("財報品質分析")
-
-    for r in earnings_quality(
-        df["revenue"].mean(),
-        df["profit"].mean(),
-        df["assets"].mean()
-    ):
-        st.write(r)
-
+    st.write("Risk Score：", score)
+    st.write("ISA 700 意見：", isa700(score))
 
     # =========================
-    # WORD REPORT
+    # 🧠 RELATED PARTY GRAPH
     # =========================
 
-    if st.button("產出完整報告"):
+    st.subheader("關係人交易圖（Graph）")
+    build_graph()
+
+    # =========================
+    # MODE LOGIC
+    # =========================
+
+    st.subheader("查核 / 分析建議")
+
+    if mode == "查核模式（事務所）":
+
+        st.write([
+            "應收帳款函證",
+            "收入 cut-off test",
+            "存貨盤點",
+            "關係人交易查核",
+            "ISA 240 舞弊風險評估"
+        ])
+
+    else:
+
+        st.write([
+            "獲利能力分析",
+            "成本結構分析",
+            "資本效率分析"
+        ])
+
+    # =========================
+    # ☁️ GOOGLE DRIVE EXPORT
+    # =========================
+
+    if st.button("上傳Working Paper到雲端"):
+
+        google_drive_upload("audit_report_v23.docx")
+
+    # =========================
+    # 📄 REPORT EXPORT
+    # =========================
+
+    if st.button("產出查核報告"):
 
         doc = Document()
 
-        doc.add_heading("玄武會計師事務所｜完整財報查核報告", 0)
+        doc.add_heading("AI 查核報告 v23", 0)
 
-        doc.add_paragraph("模式：" + mode)
-
-        doc.add_paragraph(df.to_string())
+        doc.add_paragraph("Risk Score：" + str(score))
+        doc.add_paragraph("ISA 700：" + isa700(score))
 
         buffer = io.BytesIO()
         doc.save(buffer)
@@ -348,5 +290,5 @@ if data:
         st.download_button(
             "下載報告",
             buffer,
-            file_name="v22_final_report.docx"
+            file_name="v23_audit_report.docx"
         )

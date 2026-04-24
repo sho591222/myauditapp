@@ -1,5 +1,15 @@
+# 核心介面與檔案處理
 streamlit
 pandas
+pypdf
+
+# 專家級多頁式報告生成 (必要)
 python-docx
+
+# 統計模型與數據分析 (DID/HLM 邏輯支持)
+scipy
+numpy
+
+# 專家級視覺化圖表
 matplotlib
 seaborn

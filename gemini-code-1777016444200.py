@@ -76,14 +76,14 @@ def make_expert_docx(firm, auditor, date_obj, df, focus):
 
 # --- 4. Streamlit 介面 ---
 with st.sidebar:
-    st.header("⚖️ 專家簽署設定")
+    st.header(" 專家簽署設定")
     firm = st.text_input("事務所名稱", "誠信聯合會計師事務所")
     auditor = st.text_input("執業會計師", "陳大文 (CPA / CFE)")
     r_date = st.date_input("簽署日期", datetime.now())
     st.divider()
-    files = st.file_uploader("📂 上傳年度財報 PDF", type=["pdf"], accept_multiple_files=True)
+    files = st.file_uploader(" 上傳年度財報 PDF", type=["pdf"], accept_multiple_files=True)
 
-st.title("⚖️ 專家級鑑識會計鑑定系統")
+st.title(" 專家級鑑識會計鑑定系統")
 
 if files:
     df_result, focus_list = expert_audit_engine([f.name for f in files])
@@ -93,7 +93,7 @@ if files:
     st.sidebar.download_button("📥 下載一頁式簽署報告", data=docx_stream, file_name="鑑定報告_專家簽署版.docx")
 
     # 網頁呈現
-    st.subheader("📊 鑑定數據趨勢對照")
+    st.subheader(" 鑑定數據趨勢對照")
     st.dataframe(df_result, use_container_width=True)
     
     st.divider()
@@ -101,13 +101,13 @@ if files:
     # 深度分析與簽章
     col1, col2 = st.columns([3, 2])
     with col1:
-        st.error("🔍 **重點會計科目查核清單**")
+        st.error(" **重點會計科目查核清單**")
         for item in focus_list:
-            with st.expander(f"📌 {item['科目']} - {item['風險']}"):
+            with st.expander(f" {item['科目']} - {item['風險']}"):
                 st.write(f"**查核動作建議：** {item['查核點']}")
     
     with col2:
-        st.warning("✍️ **一頁式簽章預覽**")
+        st.warning(" **一頁式簽章預覽**")
         st.markdown(f"""
         <div style="border: 1px solid #000; padding: 15px; background: white; color: black; font-family: 'Microsoft JhengHei';">
             <h5 style="text-align:center;">{firm}</h5>

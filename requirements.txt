@@ -7,3 +7,12 @@ openpyxl
 networkx
 requests
 Pillow
+streamlit
+pandas
+matplotlib
+pdfplumber
+python-docx
+openpyxl
+networkx
+requests
+Pillow

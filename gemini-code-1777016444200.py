@@ -11,14 +11,11 @@ st.set_page_config(page_title="玄武會計師事務所", layout="wide")
 if not st.session_state.entered:
     st.markdown("<br><br>", unsafe_allow_html=True)
     st.title("玄武會計師事務所")
-    st.subheader("AI 四大財務 + 年度分析 + 查核整合系統 v64")
+    st.subheader("AI四大財務年度分析 查核整合系統 ")
     
     # 此處為畫面唯一按鈕，絕無其他輸入框
     if st.button("進入系統", use_container_width=True):
-        st.session_state.entered = True
-        st.rerun()
-    
-    # 強制停止，不載入後續任何功能
+       # 強制停止，不載入後續任何功能
     st.stop()
 
 # =====================================================

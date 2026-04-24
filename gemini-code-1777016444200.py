@@ -9,11 +9,11 @@ from docx import Document
 import io
 
 
-# =====================================================
-# DATABASE (SaaS + RBAC)
-# =====================================================
+# =========================
+# DATABASE
+# =========================
 
-conn = sqlite3.connect("audit_system.db", check_same_thread=False)
+conn = sqlite3.connect("audit.db", check_same_thread=False)
 c = conn.cursor()
 
 c.execute("""
@@ -28,9 +28,9 @@ CREATE TABLE IF NOT EXISTS users (
 conn.commit()
 
 
-# =====================================================
-# AUTH SYSTEM
-# =====================================================
+# =========================
+# AUTH
+# =========================
 
 def hash_pw(pw):
     return hashlib.sha256(pw.encode()).hexdigest()
@@ -59,59 +59,60 @@ def get_user(email):
     return c.fetchone()
 
 
-# =====================================================
-# PDF ENGINE
-# =====================================================
+# =========================
+# FILE PARSER
+# =========================
 
 def parse_pdf(file):
     text = ""
-
     with pdfplumber.open(file) as pdf:
-        for i, page in enumerate(pdf.pages):
+        for i, p in enumerate(pdf.pages):
             text += f"PAGE {i+1}\n"
-            text += page.extract_text() or ""
-
+            text += p.extract_text() or ""
     return text
 
+
+def read_word(file):
+    doc = Document(file)
+    return "\n".join([p.text for p in doc.paragraphs])
+
+
+# =========================
+# AUDIT ENGINE
+# =========================
 
 def audit_engine(text, role):
 
     issues = []
-
     pages = text.split("PAGE")
 
     for i, p in enumerate(pages):
 
         if "應收帳款" in p:
-            issues.append((i, "AR risk"))
+            issues.append((i, "應收帳款異常"))
 
         if "存貨" in p:
-            issues.append((i, "inventory risk"))
+            issues.append((i, "存貨風險"))
 
         if "關係人" in p:
-            issues.append((i, "related party transaction"))
+            issues.append((i, "關係人交易"))
 
-        # 公司內部
         if role == "Company User":
 
             if "費用" in p:
-                issues.append((i, "expense anomaly"))
+                issues.append((i, "費用異常"))
 
-        # 事務所模式
-        if role in ["Audit Firm User", "Staff", "Manager", "Partner"]:
+        else:
 
             if "收入" in p:
                 issues.append((i, "cut-off test"))
 
-            if "費用" in p:
-                issues.append((i, "completeness test"))
-
     return issues
 
 
-# =====================================================
-# CHART ENGINE
-# =====================================================
+# =========================
+# CHART
+# =========================
 
 def make_chart():
 
@@ -131,36 +132,36 @@ def make_chart():
     return fig
 
 
-# =====================================================
-# GRAPH ENGINE
-# =====================================================
+# =========================
+# GRAPH
+# =========================
 
 def build_graph():
 
     G = nx.Graph()
 
     G.add_edges_from([
-        ("Company A", "Subsidiary B"),
-        ("Company A", "Related Party C"),
-        ("Related Party C", "Vendor D")
+        ("公司A", "子公司B"),
+        ("公司A", "關係人C"),
+        ("關係人C", "供應商D")
     ])
 
     nx.draw(G, with_labels=True)
 
 
-# =====================================================
-# WORD REPORT ENGINE
-# =====================================================
+# =========================
+# REPORT
+# =========================
 
 def generate_report(email, role, company, issues, score):
 
     doc = Document()
 
-    doc.add_heading("Audit Report v44", 0)
+    doc.add_heading("Audit Report", 0)
 
     doc.add_paragraph(f"Email: {email}")
-    doc.add_paragraph(f"Company: {company}")
     doc.add_paragraph(f"Role: {role}")
+    doc.add_paragraph(f"Company: {company}")
     doc.add_paragraph(f"Risk Score: {score}")
 
     doc.add_paragraph("Findings:")
@@ -175,45 +176,31 @@ def generate_report(email, role, company, issues, score):
     return buffer
 
 
-# =====================================================
-# STREAMLIT UI
-# =====================================================
-
-st.title("四大雲端查核系統 v44（企業權限版）")
-
-
 # =========================
-# MODE
+# UI
 # =========================
+
+st.title("四大雲端查核系統 v44")
 
 mode = st.selectbox("模式", ["登入", "註冊"])
-
 
 email = st.text_input("Email")
 pw = st.text_input("Password", type="password")
 
 
-# role ONLY in register
-roles = [
-    "Company User",
-    "Audit Firm User",
-    "Staff",
-    "Manager",
-    "Partner"
-]
+roles = ["Company User", "Audit Firm User", "Staff", "Manager", "Partner"]
 
 
 if mode == "註冊":
 
-    role = st.selectbox("使用者角色", roles)
+    role = st.selectbox("角色", roles)
     company = st.text_input("Company")
 
     if st.button("註冊"):
-
         if register(email, pw, role, company):
-            st.success("註冊成功")
+            st.success("成功")
         else:
-            st.error("註冊失敗")
+            st.error("失敗")
 
 
 if mode == "登入":
@@ -254,32 +241,44 @@ st.write("Company:", company)
 
 
 # =========================
-# FILE UPLOAD
+# MULTI FILE UPLOAD
 # =========================
 
-file = st.file_uploader("Upload PDF")
+files = st.file_uploader(
+    "上傳 PDF / Word（可多選）",
+    type=["pdf", "docx"],
+    accept_multiple_files=True
+)
 
+all_text = ""
 issues = []
 score = 0
 
 
-if file:
+if files:
 
-    text = parse_pdf(file)
+    for f in files:
 
-    issues = audit_engine(text, role)
+        if f.name.endswith(".pdf"):
+            all_text += parse_pdf(f)
+
+        elif f.name.endswith(".docx"):
+            all_text += read_word(f)
+
+
+    issues = audit_engine(all_text, role)
 
     score = min(len(issues) * 10, 100)
 
-    st.subheader("Audit Findings")
+    st.subheader("查核結果")
 
     for p, i in issues:
         st.write("Page", p, ":", i)
 
-    st.subheader("Financial Chart")
+    st.subheader("財務圖表")
     st.pyplot(make_chart())
 
-    st.subheader("Related Party Graph")
+    st.subheader("關係人圖")
     build_graph()
 
     st.write("Risk Score:", score)
@@ -289,10 +288,10 @@ if file:
 # REPORT EXPORT
 # =========================
 
-if st.button("Generate Report"):
+if st.button("產出報告"):
 
     buffer = generate_report(
-        st.session_state.email,
+        email,
         role,
         company,
         issues,
@@ -300,7 +299,7 @@ if st.button("Generate Report"):
     )
 
     st.download_button(
-        "Download Word Report",
+        "下載Word報告",
         buffer,
-        file_name="audit_report_v44.docx"
+        file_name="audit_report.docx"
     )

@@ -10,15 +10,15 @@ from docx import Document
 
 
 # =========================
-# UI（保持你的原本風格）
+# UI（完全保留你原本風格）
 # =========================
 
 st.set_page_config(layout="wide")
-st.title("玄武會計師事務所｜財報 + 查核智慧系統 v21")
+st.title("玄武會計師事務所｜財報分析與查核系統 v22")
 
 
 # =========================
-# MODE
+# MODE SELECT
 # =========================
 
 mode = st.selectbox(
@@ -37,7 +37,7 @@ files = st.file_uploader(
     accept_multiple_files=True
 )
 
-url = st.text_input("或輸入PDF網址")
+url = st.text_input("或輸入PDF網址（選用）")
 
 
 # =========================
@@ -45,41 +45,32 @@ url = st.text_input("或輸入PDF網址")
 # =========================
 
 def parse_pdf(file):
-
     text = ""
-
     with pdfplumber.open(file) as pdf:
         for p in pdf.pages:
             text += p.extract_text() or ""
-
     return text
 
 
 def extract(text, key):
-
     m = re.search(rf"{key}.*?([\d,]+)", text)
-
     if m:
         return float(m.group(1).replace(",", ""))
-
     return 0
 
 
 def load_url(url):
-
     r = requests.get(url)
     return io.BytesIO(r.content)
 
 
 # =========================
-# CORE FINANCIAL ENGINE
+# FINANCIAL CORE
 # =========================
 
 def ratio(rev, profit, assets, liab):
-
     margin = profit / rev if rev else 0
     leverage = liab / assets if assets else 0
-
     return margin, leverage
 
 
@@ -93,17 +84,17 @@ def financial_statements(rev, profit, assets, liab):
 
 
 # =========================
-# CHART
+# CHART（直接畫在頁面）
 # =========================
 
-def chart(df):
+def draw_chart(df):
 
     fig, ax = plt.subplots()
 
-    ax.plot(df["year"], df["revenue"], label="營收")
-    ax.plot(df["year"], df["profit"], label="淨利")
+    ax.plot(df["year"], df["revenue"], marker="o", label="營收")
+    ax.plot(df["year"], df["profit"], marker="o", label="淨利")
 
-    ax.set_title("財務趨勢")
+    ax.set_title("財務趨勢分析")
     ax.legend()
 
     st.pyplot(fig)
@@ -113,84 +104,79 @@ def chart(df):
 # COMPANY MODE
 # =========================
 
-def company_analysis(margin, leverage):
+def company_analysis(m, l):
 
-    res = []
+    r = []
 
-    if margin < 0.2:
-        res.append("獲利能力偏弱")
+    if m < 0.2:
+        r.append("獲利能力偏低")
 
-    if leverage > 0.6:
-        res.append("財務槓桿過高")
+    if l > 0.6:
+        r.append("財務槓桿偏高")
 
-    return res
+    if m > 0.3:
+        r.append("獲利能力穩定")
+
+    return r
 
 
 # =========================
 # AUDIT MODE
 # =========================
 
-def audit_analysis(margin, leverage):
+def audit_analysis():
 
     return [
-        "應收帳款 → 函證",
-        "營收 → cut-off",
-        "存貨 → 盤點",
-        "負債 → completeness",
-        "ISA 240 舞弊風險"
+        "應收帳款 → 函證程序",
+        "營收 → cut-off test",
+        "存貨 → 實地盤點",
+        "負債 → completeness test",
+        "收入 → ISA 240 舞弊風險"
     ]
 
 
 # =========================
-# 🧠 ① 股譜分析
+# ADVANCED MODULES（你全部要的）
 # =========================
 
-def stock_structure_analysis(rev, profit, assets):
+def stock_analysis(rev, profit, assets):
 
     r = []
 
     if assets > rev * 2:
-        r.append("資產效率異常")
+        r.append("資產效率異常（股譜結構疑慮）")
 
     if profit / assets < 0.05:
-        r.append("ROA偏低")
+        r.append("ROA偏低（資本效率差）")
 
     return r
 
-
-# =========================
-# 🧠 ② 掏空分析
-# =========================
 
 def fraud_analysis(rev, profit, assets, liab):
 
     r = []
 
     if profit < 0 and assets > 0:
-        r.append("資產增加但持續虧損")
+        r.append("資產增加但持續虧損（潛在資金異常）")
 
     if liab > assets * 0.8:
         r.append("高負債風險")
 
     if rev > 0 and profit / rev < 0.05:
-        r.append("營收高但利潤偏低")
+        r.append("營收高但利潤偏低（可能成本異常）")
 
     return r
 
-
-# =========================
-# 🧠 ③ 財報品質分析
-# =========================
 
 def earnings_quality(rev, profit, assets):
 
     r = []
 
     if profit > rev * 0.3:
-        r.append("利潤異常偏高")
+        r.append("利潤異常偏高（需驗證收入）")
 
     if assets > rev * 3:
-        r.append("資產過重需減損測試")
+        r.append("資產過重（可能減損風險）")
 
     return r
 
@@ -209,7 +195,7 @@ if files:
         text = parse_pdf(f)
 
         data.append({
-            "year": f.name,
+            "year": f.name.replace(".pdf", ""),
             "revenue": extract(text, "營業收入"),
             "profit": extract(text, "本期淨利"),
             "assets": extract(text, "資產總額"),
@@ -232,7 +218,7 @@ if url:
 
 
 # =========================
-# MAIN PROCESS
+# MAIN OUTPUT（全部整合在同一頁）
 # =========================
 
 if data:
@@ -242,17 +228,26 @@ if data:
     st.subheader("財務資料")
     st.dataframe(df)
 
+
+    # ratio
     df["margin"], df["leverage"] = zip(*df.apply(
         lambda x: ratio(x["revenue"], x["profit"], x["assets"], x["liabilities"]),
         axis=1
     ))
 
 
-    # CHART
-    chart(df)
+    # =========================
+    #  圖表（你要求的）
+    # =========================
+
+    st.subheader("財務趨勢圖表")
+    draw_chart(df)
 
 
-    # FINANCIAL STATEMENTS
+    # =========================
+    #  財務報表（直接顯示在頁面）
+    # =========================
+
     st.subheader("財務報表分析")
 
     for i in range(len(df)):
@@ -265,13 +260,13 @@ if data:
         )
 
         st.write(df.loc[i, "year"])
-        st.write("IS", isd)
-        st.write("BS", bsd)
-        st.write("CF", cf)
+        st.write("損益表", isd)
+        st.write("資產負債表", bsd)
+        st.write("現金流（概算）", cf)
 
 
     # =========================
-    # MODE OUTPUT
+    #  分析建議（你要的語言）
     # =========================
 
     st.subheader("分析建議")
@@ -282,18 +277,20 @@ if data:
         l = df.loc[i, "leverage"]
 
         if mode == "公司內部分析":
-            st.write(company_analysis(m, l))
+            for r in company_analysis(m, l):
+                st.write(r)
         else:
-            st.write(audit_analysis(m, l))
+            for r in audit_analysis():
+                st.write(r)
 
 
     # =========================
-    # ADVANCED MODULES (你要的全部)
+    #  股譜分析（直接顯示）
     # =========================
 
     st.subheader("股譜分析")
 
-    for r in stock_structure_analysis(
+    for r in stock_analysis(
         df["revenue"].mean(),
         df["profit"].mean(),
         df["assets"].mean()
@@ -301,7 +298,11 @@ if data:
         st.write(r)
 
 
-    st.subheader("掏空分析")
+    # =========================
+    #  掏空分析（直接顯示）
+    # =========================
+
+    st.subheader("掏空風險分析")
 
     for r in fraud_analysis(
         df["revenue"].mean(),
@@ -311,6 +312,10 @@ if data:
     ):
         st.write(r)
 
+
+    # =========================
+    # 🧠 財報品質分析
+    # =========================
 
     st.subheader("財報品質分析")
 
@@ -330,7 +335,7 @@ if data:
 
         doc = Document()
 
-        doc.add_heading("玄武會計師事務所｜完整財報與查核報告 v21", 0)
+        doc.add_heading("玄武會計師事務所｜完整財報查核報告", 0)
 
         doc.add_paragraph("模式：" + mode)
 
@@ -343,5 +348,5 @@ if data:
         st.download_button(
             "下載報告",
             buffer,
-            file_name="v21_full_report.docx"
+            file_name="v22_final_report.docx"
         )

@@ -44,3 +44,9 @@ python-docx
 openpyxl
 networkx
 Pillow
+streamlit
+pandas
+matplotlib
+pdfplumber
+python-docx
+openpyxl

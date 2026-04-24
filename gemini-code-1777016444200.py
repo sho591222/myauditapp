@@ -1,235 +1,309 @@
 import streamlit as st
+import sqlite3
+import hashlib
 import pdfplumber
 import pandas as pd
 import matplotlib.pyplot as plt
 import io
 import re
 from docx import Document
-from docx.shared import Inches
 
 
 # =========================
-# UI
+# DATABASE
 # =========================
 
-st.title("玄武會計師事務所｜AI 查核系統 v30（證據定位版）")
+conn = sqlite3.connect("users.db", check_same_thread=False)
+c = conn.cursor()
 
-mode = st.selectbox("分析模式", ["公司內部", "會計師事務所"])
+c.execute("""
+CREATE TABLE IF NOT EXISTS users (
+    username TEXT PRIMARY KEY,
+    password TEXT
+)
+""")
 
-files = st.file_uploader("上傳財報PDF", type="pdf", accept_multiple_files=True)
-
-
-# =========================
-# PDF PARSER（含頁數）
-# =========================
-
-def extract_pdf(file):
-
-    pages_data = []
-
-    with pdfplumber.open(file) as pdf:
-
-        for i, page in enumerate(pdf.pages):
-
-            text = page.extract_text() or ""
-
-            pages_data.append({
-                "page": i + 1,
-                "text": text
-            })
-
-    return pages_data
+conn.commit()
 
 
 # =========================
-# KEYWORD DETECTION
+# HASH
 # =========================
 
-def detect_issues(page_text, page_num, mode):
-
-    issues = []
-
-    # -------------------------
-    # COMMON DETECTION
-    # -------------------------
-
-    if "應收帳款" in page_text:
-        issues.append((page_num, "應收帳款異常或需函證"))
-
-    if "存貨" in page_text:
-        issues.append((page_num, "存貨跌價或盤點風險"))
-
-    if "關係人" in page_text:
-        issues.append((page_num, "關係人交易需查核"))
-
-    if "負債" in page_text:
-        issues.append((page_num, "負債完整性風險"))
-
-
-    # -------------------------
-    # MODE LOGIC
-    # -------------------------
-
-    if mode == "會計師事務所":
-
-        if "收入" in page_text:
-            issues.append((page_num, "收入 cut-off test"))
-
-        if "費用" in page_text:
-            issues.append((page_num, "費用完整性測試"))
-
-        issues.append((page_num, "函證程序（應收帳款）"))
-
-    else:
-
-        if "費用" in page_text:
-            issues.append((page_num, "費用異常偏高"))
-
-        if "現金" in page_text:
-            issues.append((page_num, "現金流量異常"))
-
-    return issues
+def hash_pw(pw):
+    return hashlib.sha256(pw.encode()).hexdigest()
 
 
 # =========================
-# DATA STORAGE
+# REGISTER
 # =========================
 
-all_issues = []
-page_map = []
+def register(u, p):
 
-
-if files:
-
-    for f in files:
-
-        pages = extract_pdf(f)
-
-        for p in pages:
-
-            page_map.append({
-                "page": p["page"],
-                "text": p["text"]
-            })
-
-            issues = detect_issues(p["text"], p["page"], mode)
-
-            all_issues.extend(issues)
+    try:
+        c.execute("INSERT INTO users VALUES (?,?)", (u, hash_pw(p)))
+        conn.commit()
+        return True
+    except:
+        return False
 
 
 # =========================
-# DISPLAY
+# LOGIN
 # =========================
 
-if page_map:
+def login(u, p):
 
-    st.subheader("PDF頁面分析")
+    c.execute("SELECT password FROM users WHERE username=?", (u,))
+    d = c.fetchone()
 
-    for p in page_map:
+    if d and d[0] == hash_pw(p):
+        return True
 
-        st.write(f"第 {p['page']} 頁")
+    return False
 
-        if len(p["text"]) > 200:
-            st.text(p["text"][:200] + "...")
+
+# =========================
+# SESSION
+# =========================
+
+if "auth" not in st.session_state:
+    st.session_state.auth = False
+
+if "role" not in st.session_state:
+    st.session_state.role = None
+
+if "step" not in st.session_state:
+    st.session_state.step = "login"
+
+
+# =========================
+# UI TITLE
+# =========================
+
+st.title("玄武會計師事務所｜AI 查核系統 v31（完整門禁版）")
+
+
+# =========================
+# STEP 1 - REGISTER
+# =========================
+
+if st.session_state.step == "register":
+
+    st.subheader("註冊")
+
+    u = st.text_input("帳號")
+    p = st.text_input("密碼", type="password")
+
+    if st.button("建立帳號"):
+
+        if register(u, p):
+            st.success("註冊成功，請登入")
+            st.session_state.step = "login"
         else:
-            st.text(p["text"])
+            st.error("帳號已存在")
 
 
 # =========================
-# ISSUE OUTPUT
+# STEP 2 - LOGIN
 # =========================
 
-if all_issues:
+if st.session_state.step == "login":
 
-    st.subheader("查核發現（頁面定位）")
+    st.subheader("登入")
 
-    for page, issue in all_issues:
+    u = st.text_input("帳號")
+    p = st.text_input("密碼", type="password")
 
-        st.write(f"第 {page} 頁 → {issue}")
+    if st.button("登入"):
 
+        if login(u, p):
 
-# =========================
-# SIMPLE FINANCIAL MODEL (optional demo)
-# =========================
+            st.session_state.auth = True
+            st.success("登入成功")
 
-df = pd.DataFrame({
-    "year": ["2021", "2022", "2023"],
-    "revenue": [1000, 1200, 900],
-    "profit": [100, 80, -50]
-})
+            st.session_state.step = "role"
 
-fig, ax = plt.subplots()
-ax.plot(df["year"], df["revenue"], label="營收")
-ax.plot(df["year"], df["profit"], label="淨利")
-ax.legend()
-
-st.pyplot(fig)
+        else:
+            st.error("帳號或密碼錯誤")
 
 
 # =========================
-# RISK SCORE
+# STEP 3 - ROLE SELECT
 # =========================
 
-score = 0
+if st.session_state.step == "role":
 
-if len([x for x in all_issues if "關係人" in x[1]]) > 0:
-    score += 30
+    st.subheader("選擇使用者類型（重要）")
 
-if len([x for x in all_issues if "存貨" in x[1]]) > 2:
-    score += 20
+    role = st.selectbox("角色", ["公司內部", "會計師事務所"])
 
-if len([x for x in all_issues if "應收帳款" in x[1]]) > 2:
-    score += 20
+    if st.button("進入系統"):
 
-score = min(score, 100)
-
-st.subheader("風險分數")
-st.write(score)
+        st.session_state.role = role
+        st.session_state.step = "main"
 
 
 # =========================
-# REPORT GENERATION (WORD)
+# BLOCK MAIN IF NOT AUTH
 # =========================
 
-if st.button("產出完整查核報告"):
-
-    doc = Document()
-
-    doc.add_heading("AI 查核報告 v30（證據定位版）", 0)
-
-    doc.add_paragraph(f"模式：{mode}")
-    doc.add_paragraph(f"風險分數：{score}")
-
-    doc.add_paragraph("\n=== 查核發現（頁面定位） ===")
-
-    for page, issue in all_issues:
-        doc.add_paragraph(f"第 {page} 頁 → {issue}")
+if not st.session_state.auth:
+    st.warning("請先登入")
+    st.stop()
 
 
-    doc.add_paragraph("\n=== 查核建議科目 ===")
+# =========================
+# STEP 4 - MAIN SYSTEM
+# =========================
 
-    if mode == "會計師事務所":
+if st.session_state.step == "main":
 
-        doc.add_paragraph("應收帳款函證")
-        doc.add_paragraph("收入 cut-off")
-        doc.add_paragraph("存貨盤點")
-        doc.add_paragraph("關係人交易查核")
+    st.subheader("財報分析系統")
 
-    else:
-
-        doc.add_paragraph("應收帳款回收性分析")
-        doc.add_paragraph("存貨跌價風險")
-        doc.add_paragraph("費用異常分析")
+    st.write("目前角色：", st.session_state.role)
 
 
-    doc.add_paragraph("\n=== 財務圖表已附（系統內） ===")
+    files = st.file_uploader("上傳PDF", type="pdf", accept_multiple_files=True)
 
-    buffer = io.BytesIO()
-    doc.save(buffer)
-    buffer.seek(0)
 
-    st.download_button(
-        "下載查核報告",
-        buffer,
-        file_name="audit_v30.docx"
-    )
+    def parse(file):
+
+        text = ""
+
+        with pdfplumber.open(file) as pdf:
+            for p in pdf.pages:
+                text += p.extract_text() or ""
+
+        return text
+
+
+    def extract(text, key):
+
+        m = re.search(rf"{key}.*?([\d,]+)", text)
+
+        if m:
+            return float(m.group(1).replace(",", ""))
+
+        return 0
+
+
+    data = []
+
+
+    if files:
+
+        for f in files:
+
+            t = parse(f)
+
+            data.append({
+                "year": f.name,
+                "revenue": extract(t, "營業收入"),
+                "profit": extract(t, "本期淨利"),
+                "assets": extract(t, "資產總額"),
+                "liabilities": extract(t, "負債總額"),
+                "ar": extract(t, "應收帳款"),
+                "inventory": extract(t, "存貨")
+            })
+
+
+    if data:
+
+        df = pd.DataFrame(data)
+
+        st.dataframe(df)
+
+
+        # =========================
+        # CHART
+        # =========================
+
+        fig, ax = plt.subplots()
+
+        ax.plot(df["year"], df["revenue"], label="營收")
+        ax.plot(df["year"], df["profit"], label="淨利")
+
+        ax.legend()
+
+        st.pyplot(fig)
+
+
+        # =========================
+        # MODE LOGIC
+        # =========================
+
+        st.subheader("查核建議")
+
+        if st.session_state.role == "會計師事務所":
+
+            st.write([
+                "收入 cut-off",
+                "應收帳款函證",
+                "存貨盤點",
+                "關係人交易查核",
+                "負債完整性"
+            ])
+
+        else:
+
+            st.write([
+                "應收帳款回收性",
+                "存貨風險",
+                "費用異常",
+                "現金流量分析"
+            ])
+
+
+        # =========================
+        # SCORE
+        # =========================
+
+        score = 0
+
+        if df["profit"].mean() < 0:
+            score += 30
+
+        if df["liabilities"].mean() > df["assets"].mean() * 0.7:
+            score += 25
+
+        score = min(score, 100)
+
+        st.write("風險分數：", score)
+
+
+        # =========================
+        # REPORT EXPORT
+        # =========================
+
+        if st.button("產出報告"):
+
+            doc = Document()
+
+            doc.add_heading("AI 查核報告 v31", 0)
+
+            doc.add_paragraph(f"角色：{st.session_state.role}")
+            doc.add_paragraph(f"風險分數：{score}")
+
+            buffer = io.BytesIO()
+            doc.save(buffer)
+            buffer.seek(0)
+
+            st.download_button(
+                "下載報告",
+                buffer,
+                file_name="audit_v31.docx"
+            )
+
+
+# =========================
+# NAVIGATION
+# =========================
+
+st.sidebar.write("流程控制")
+
+if st.sidebar.button("去註冊"):
+    st.session_state.step = "register"
+
+if st.sidebar.button("去登入"):
+    st.session_state.step = "login"

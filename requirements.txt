@@ -1,6 +1,4 @@
 streamlit
 pandas
+pdfplumber
 python-docx
-matplotlib
-seaborn
-pypdf

@@ -15,3 +15,13 @@ google-auth
 google-auth-oauthlib
 google-api-python-client
 pydantic
+streamlit
+pandas
+numpy
+matplotlib
+pdfplumber
+python-docx
+openpyxl
+sqlite3
+hashlib
+datetime

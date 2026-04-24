@@ -58,3 +58,9 @@ python-docx
 openpyxl
 sqlite3
 hashlib
+streamlit
+pandas
+matplotlib
+pdfplumber
+python-docx
+openpyxl

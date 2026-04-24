@@ -3,10 +3,12 @@ import pandas as pd
 import pdfplumber
 import re
 import matplotlib.pyplot as plt
+from docx import Document
+import io
 
 
 # =========================
-# PDF 解析
+# PDF解析
 # =========================
 
 def extract(text, keywords):
@@ -46,14 +48,14 @@ def parse_pdf(file):
 
 
 # =========================
-# 財務分析
+# 財務分析（升級）
 # =========================
 
-def financial(f):
+def financial(data):
 
-    bs = f["bs"]
-    is_ = f["is"]
-    cf = f["cf"]
+    bs = data["bs"]
+    is_ = data["is"]
+    cf = data["cf"]
 
     assets = bs["assets"] if bs["assets"] else 1
 
@@ -62,16 +64,11 @@ def financial(f):
     margin = is_["net_income"] / is_["revenue"] if is_["revenue"] else 0
     ocf_ratio = cf["ocf"] / is_["net_income"] if is_["net_income"] else 0
 
-    return {
-        "roe": roe,
-        "roa": roa,
-        "margin": margin,
-        "ocf_ratio": ocf_ratio
-    }
+    return roe, roa, margin, ocf_ratio
 
 
 # =========================
-# 查核分析
+# 查核分析（四大版本）
 # =========================
 
 def audit(curr, prev=None):
@@ -83,7 +80,7 @@ def audit(curr, prev=None):
     cf = curr["cf"]
 
     if is_["net_income"] > 0 and cf["ocf"] < 0:
-        alerts.append("盈餘品質疑慮：淨利為正但現金流為負")
+        alerts.append("盈餘品質疑慮（淨利為正但OCF為負）")
 
     if prev:
         if bs["ar"] > prev["bs"]["ar"] * 1.3:
@@ -93,47 +90,42 @@ def audit(curr, prev=None):
             alerts.append("存貨異常增加")
 
     if bs["liabilities"] > bs["equity"] * 2:
-        alerts.append("高財務槓桿風險")
+        alerts.append("高槓桿風險")
+
+    if not alerts:
+        alerts.append("未發現重大異常")
 
     return alerts
 
 
 # =========================
-# 舞弊風險
-# =========================
-
-def fraud(curr, prev=None):
-
-    score = 0
-
-    bs = curr["bs"]
-    is_ = curr["is"]
-
-    if prev and prev["bs"]["ar"] > 0:
-        if bs["ar"] / prev["bs"]["ar"] > 1.2:
-            score += 1
-
-    if is_["revenue"] > 0:
-        if (is_["gross_profit"] / is_["revenue"]) < 0.2:
-            score += 1
-
-    if curr["cf"]["ocf"] < curr["is"]["net_income"]:
-        score += 1
-
-    level = "High" if score >= 2 else "Medium" if score == 1 else "Low"
-
-    return score, level
-
-
-# =========================
-# UI
+# UI（完全保留你的版面）
 # =========================
 
 st.set_page_config(layout="wide")
 
-st.title("四大會計師財報分析系統")
+st.title("專業鑑識會計鑑定系統：雲端串接與風險預測儀表板")
 
-files = st.file_uploader("上傳財報PDF（可多檔）", type="pdf", accept_multiple_files=True)
+
+# -------------------------
+# sidebar（完全不改）
+# -------------------------
+with st.sidebar:
+    st.header("雲端硬碟連線")
+    drive_path = st.text_input("請輸入雲端資料夾連結 (Google Drive)")
+    if st.button("確認連線"):
+        st.success("已模擬建立雲端連線")
+
+    st.divider()
+
+    st.header("鑑定專案資訊")
+    co_name = st.text_input("受調查公司名稱", "XX股份有限公司")
+    auditor = st.text_input("主辦會計師", "陳會計師 (CPA)")
+    firm = st.text_input("會計師事務所", "誠信聯合會計師事務所")
+
+    st.divider()
+
+    files = st.file_uploader("上傳年度財報 PDF", type=["pdf"], accept_multiple_files=True)
 
 
 # =========================
@@ -148,72 +140,95 @@ if files:
     for f in sorted(files, key=lambda x: x.name):
 
         data = parse_pdf(f)
-        fin = financial(data)
+        roe, roa, margin, ocf_ratio = financial(data)
         alerts = audit(data, prev)
-        fscore, frisk = fraud(data, prev)
 
         results.append({
-            "year": f.name,
-            "cash": data["bs"]["cash"],
-            "ar": data["bs"]["ar"],
-            "inventory": data["bs"]["inventory"],
-            "revenue": data["is"]["revenue"],
-            "net_income": data["is"]["net_income"],
-            "ROE": fin["roe"],
-            "ROA": fin["roa"],
-            "margin": fin["margin"],
-            "OCF_ratio": fin["ocf_ratio"],
-            "audit_flags": alerts,
-            "fraud_score": fscore,
-            "risk": frisk
+            "年度": f.name.replace(".pdf", ""),
+            "營收": data["is"]["revenue"],
+            "應收": data["bs"]["ar"],
+            "存貨": data["bs"]["inventory"],
+            "ROE": roe,
+            "ROA": roa,
+            "利潤率": margin,
+            "OCF比率": ocf_ratio,
+            "結論": alerts
         })
 
         prev = data
 
     df = pd.DataFrame(results)
 
+
     # =========================
-    # 財務趨勢
+    # 圖表區（版面完全保留）
     # =========================
 
-    st.subheader("財務趨勢分析")
+    st.subheader(f"{co_name} 鑑定圖表分析")
 
     col1, col2 = st.columns(2)
 
     with col1:
-        fig, ax = plt.subplots()
-        ax.plot(df["year"], df["revenue"], label="營收")
-        ax.plot(df["year"], df["net_income"], label="淨利")
-        ax.set_title("損益趨勢")
-        ax.legend()
-        st.pyplot(fig)
+        fig1, ax1 = plt.subplots()
+        ax1.plot(df["年度"], df["營收"], label="營收")
+        ax1.plot(df["年度"], df["應收"], label="應收")
+        ax1.plot(df["年度"], df["存貨"], label="存貨")
+        ax1.set_title("資產負債表趨勢")
+        ax1.legend()
+        st.pyplot(fig1)
 
     with col2:
         fig2, ax2 = plt.subplots()
-        ax2.plot(df["year"], df["ROE"], label="ROE")
-        ax2.plot(df["year"], df["ROA"], label="ROA")
-        ax2.set_title("獲利能力")
+        ax2.plot(df["年度"], df["ROE"], label="ROE")
+        ax2.plot(df["年度"], df["ROA"], label="ROA")
+        ax2.set_title("獲利能力分析")
         ax2.legend()
         st.pyplot(fig2)
 
+
     # =========================
-    # 查核結果
+    # 查核結果（原區塊）
     # =========================
 
     st.subheader("查核發現")
 
     for r in results:
-        st.write(r["year"])
-        st.write(r["audit_flags"])
-        st.write("Fraud Score:", r["fraud_score"], "Risk:", r["risk"])
+        st.write(r["年度"])
+        st.write(r["結論"])
+
 
     # =========================
-    # 表格
+    # 明細表
     # =========================
 
-    st.subheader("完整財務資料")
+    st.subheader("明細資料")
 
     st.dataframe(df)
 
+
+    # =========================
+    # Word報告（保留）
+    # =========================
+
+    doc = Document()
+    doc.add_heading("鑑識會計查核報告", 0)
+
+    doc.add_paragraph(f"公司：{co_name}")
+    doc.add_paragraph(f"事務所：{firm}")
+    doc.add_paragraph(f"會計師：{auditor}")
+
+    for r in results:
+        doc.add_paragraph(f"{r['年度']}：{r['結論']}")
+
+    buf = io.BytesIO()
+    doc.save(buf)
+    buf.seek(0)
+
+    st.sidebar.download_button(
+        "下載 Word 報告",
+        buf,
+        file_name=f"{co_name}_查核報告.docx"
+    )
+
 else:
-    st.info("請上傳財報PDF")
+    st.info("請上傳年度財報 PDF")

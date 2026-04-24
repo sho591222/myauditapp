@@ -8,3 +8,8 @@ gspread
 google-auth
 pydrive2
 scikit-learn
+streamlit
+pandas
+numpy
+pdfplumber
+python-docx

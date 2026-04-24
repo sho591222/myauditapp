@@ -3,7 +3,9 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-import pdfplumber
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+from reportlab.lib.styles import getSampleStyleSheet
+import io
 
 
 # =====================================================
@@ -11,127 +13,62 @@ import pdfplumber
 # =====================================================
 
 st.title("玄武會計師事務所")
+
 st.subheader("審計及財務報表分析系統")
 
 
 # =====================================================
-# 🔐 登入（極簡版）
+# 🚀 進入系統
 # =====================================================
 
-if "login" not in st.session_state:
-    st.session_state.login = False
+if "enter" not in st.session_state:
+    st.session_state.enter = False
 
-if not st.session_state.login:
+if not st.session_state.enter:
 
-    st.write("請登入系統")
-
-    if st.button("登入"):
-
-        st.session_state.login = True
-        st.success("登入成功")
+    if st.button("進入系統"):
+        st.session_state.enter = True
 
     st.stop()
 
 
 # =====================================================
-# 📄 上傳 PDF
+# 📊 假財報資料
 # =====================================================
 
-files = st.file_uploader(
-    "上傳財務報表（PDF，可多選）",
-    type=["pdf"],
-    accept_multiple_files=True
-)
-
-
-# =====================================================
-# 📊 假財報（避免解析失敗）
-# =====================================================
-
-def financial_data():
-
-    return pd.DataFrame({
-        "年度": ["2022", "2023", "2024"],
-        "營收": [100, 120, 90],
-        "獲利": [10, 15, -5],
-        "資產": [200, 220, 210],
-        "負債": [80, 100, 130]
-    })
+df = pd.DataFrame({
+    "年度": ["2022", "2023", "2024"],
+    "營收": [100, 120, 90],
+    "獲利": [10, 15, -5],
+    "資產": [200, 220, 210],
+    "負債": [80, 100, 130]
+})
 
 
 # =====================================================
-# 🧠 財報分析（全部整合）
+# 🧠 分析核心（全部整合）
 # =====================================================
 
 def analyze(df):
 
-    result = {
-        "四大報表分析": [],
-        "風險分析": [],
-        "查核建議": [],
-        "年度分析": []
-    }
+    risk = []
 
-
-    # =========================
-    # 四大報表
-    # =========================
-
-    result["四大報表分析"] = [
-        "資產負債表分析",
-        "損益表分析",
-        "現金流量分析",
-        "權益變動分析"
-    ]
-
-
-    # =========================
-    # 舞弊 / 掏空 / 不實
-    # =========================
-
+    # 財報不實
     if df["獲利"].iloc[-1] < 0:
-        result["風險分析"].append("財報虧損風險")
+        risk.append("財報不實風險（虧損異常）")
 
+    # 掏空（負債上升）
     if df["負債"].iloc[-1] > df["負債"].iloc[0]:
-        result["風險分析"].append("負債上升風險")
+        risk.append("掏空風險（資金異常流出）")
 
-    result["風險分析"] += [
-        "財報不實風險",
-        "掏空風險（資金異常流動）",
-        "關係人交易風險",
-        "舞弊風險"
-    ]
-
-
-    # =========================
-    # 查核建議（ISA 概念）
-    # =========================
-
-    result["查核建議"] = [
-        "收入認列測試",
-        "應收帳款函證",
-        "存貨盤點",
-        "關係人交易查核",
-        "現金流量測試",
-        "內控測試"
-    ]
-
-
-    # =========================
-    # 年度分析
-    # =========================
-
+    # 幣安（資金異常交易概念）
     if df["營收"].iloc[-1] < df["營收"].iloc[0]:
-        result["年度分析"].append("營收下降趨勢")
+        risk.append("交易異常風險（類幣安資金波動）")
 
-    if df["獲利"].iloc[-1] < 0:
-        result["年度分析"].append("出現虧損")
+    # 舞弊
+    risk.append("舞弊風險（內控缺失可能）")
 
-    if df["負債"].iloc[-1] > df["負債"].iloc[0]:
-        result["年度分析"].append("負債增加")
-
-
-    return result
+    return risk
 
 
 # =====================================================
@@ -145,38 +82,87 @@ def chart(df):
     ax.plot(df["年度"], df["營收"], label="營收")
     ax.plot(df["年度"], df["獲利"], label="獲利")
 
-    ax.set_title("財務趨勢")
     ax.legend()
 
     return fig
 
 
 # =====================================================
-# 🚀 主流程
+# 📄 PDF 產生（含頁碼概念）
 # =====================================================
 
-if files:
+def generate_pdf(df, risk):
 
-    df = financial_data()
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer)
 
-    analysis = analyze(df)
+    styles = getSampleStyleSheet()
+    content = []
+
+    content.append(Paragraph("第1頁：財務分析報告", styles["Title"]))
+    content.append(Spacer(1, 12))
+
+    content.append(Paragraph(str(df.to_string()), styles["Normal"]))
+
+    content.append(Spacer(1, 12))
+    content.append(Paragraph("第2頁：風險分析", styles["Title"]))
+
+    for r in risk:
+        content.append(Paragraph(r, styles["Normal"]))
+
+    doc.build(content)
+
+    buffer.seek(0)
+    return buffer
 
 
-    st.subheader("📊 四大報表分析")
-    st.write(analysis["四大報表分析"])
+# =====================================================
+# 📊 Excel 輸出
+# =====================================================
+
+def generate_excel(df, risk):
+
+    buffer = io.BytesIO()
+
+    with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
+
+        df.to_excel(writer, sheet_name="財報")
+        pd.DataFrame(risk, columns=["風險"]).to_excel(writer, sheet_name="風險")
+
+    buffer.seek(0)
+
+    return buffer
 
 
-    st.subheader("⚠️ 風險分析")
-    st.write(analysis["風險分析"])
+# =====================================================
+# 🚀 主畫面（結果頁）
+# =====================================================
+
+risk = analyze(df)
 
 
-    st.subheader("🧾 查核建議")
-    st.write(analysis["查核建議"])
+st.subheader("📊 財務分析")
+st.write(df)
+
+st.subheader("⚠️ 風險分析")
+st.write(risk)
+
+st.subheader("📈 圖表")
+st.pyplot(chart(df))
 
 
-    st.subheader("📈 年度分析")
-    st.write(analysis["年度分析"])
+# =====================================================
+# 📦 下載區
+# =====================================================
 
+st.download_button(
+    "下載 PDF 報告",
+    generate_pdf(df, risk),
+    file_name="audit_report.pdf"
+)
 
-    st.subheader("📊 圖表")
-    st.pyplot(chart(df))
+st.download_button(
+    "下載 Excel 報告",
+    generate_excel(df, risk),
+    file_name="audit_report.xlsx"
+)

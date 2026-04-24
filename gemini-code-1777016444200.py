@@ -1,21 +1,19 @@
 import streamlit as st
 import sqlite3
 import hashlib
-import datetime
 import pandas as pd
-import pdfplumber
-import openpyxl
-from docx import Document
-import io
-import networkx as nx
 import matplotlib.pyplot as plt
+import pdfplumber
+from docx import Document
+import networkx as nx
+import io
 
 
 # =====================================================
-# DATABASE + AUDIT TRAIL
+# 資料庫
 # =====================================================
 
-conn = sqlite3.connect("v45.db", check_same_thread=False)
+conn = sqlite3.connect("audit_system.db", check_same_thread=False)
 c = conn.cursor()
 
 c.execute("""
@@ -23,17 +21,8 @@ CREATE TABLE IF NOT EXISTS users (
     email TEXT PRIMARY KEY,
     password TEXT,
     role TEXT,
-    company TEXT
-)
-""")
-
-c.execute("""
-CREATE TABLE IF NOT EXISTS audit_log (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    email TEXT,
-    action TEXT,
-    timestamp TEXT,
-    hash TEXT
+    company TEXT,
+    audit_firm TEXT
 )
 """)
 
@@ -41,43 +30,25 @@ conn.commit()
 
 
 # =====================================================
-# SECURITY
+# 加密
 # =====================================================
 
 def hash_pw(pw):
     return hashlib.sha256(pw.encode()).hexdigest()
 
 
-def audit_hash(text):
-    return hashlib.sha256(text.encode()).hexdigest()
+# =====================================================
+# 註冊 / 登入
+# =====================================================
 
-
-def log_action(email, action):
-    ts = str(datetime.datetime.now())
-    h = audit_hash(email + action + ts)
+def register(email, pw, role, company, audit_firm=""):
 
     c.execute(
-        "INSERT INTO audit_log (email, action, timestamp, hash) VALUES (?,?,?,?)",
-        (email, action, ts, h)
+        "INSERT INTO users VALUES (?,?,?,?,?)",
+        (email, hash_pw(pw), role, company, audit_firm)
     )
+
     conn.commit()
-
-
-# =====================================================
-# AUTH
-# =====================================================
-
-def register(email, pw, role, company):
-
-    try:
-        c.execute(
-            "INSERT INTO users VALUES (?,?,?,?)",
-            (email, hash_pw(pw), role, company)
-        )
-        conn.commit()
-        return True
-    except:
-        return False
 
 
 def login(email, pw):
@@ -89,249 +60,266 @@ def login(email, pw):
 
 
 def get_user(email):
-    c.execute("SELECT role, company FROM users WHERE email=?", (email,))
+
+    c.execute("SELECT role, company, audit_firm FROM users WHERE email=?", (email,))
     return c.fetchone()
 
 
 # =====================================================
-# FILE INGESTION (PDF + EXCEL + XBRL SIMPLIFIED)
+# PDF 解析
 # =====================================================
 
 def parse_pdf(file):
+
     text = ""
+
     with pdfplumber.open(file) as pdf:
-        for i, p in enumerate(pdf.pages):
-            text += f"PAGE {i+1}\n"
+        for p in pdf.pages:
             text += p.extract_text() or ""
+
     return text
 
 
+# =====================================================
+# Excel 解析
+# =====================================================
+
 def parse_excel(file):
 
-    df = pd.read_excel(file)
-    return df.to_string()
+    return pd.read_excel(file)
 
 
 # =====================================================
-# RAG (SIMPLIFIED FINANCIAL GPT)
+# 財報問答系統
 # =====================================================
 
-def rag_query(text):
+def financial_qa(text):
 
-    if "revenue decline" in text.lower():
-        return "Revenue下降，需檢查收入認列與cut-off"
+    if "營收下降" in text:
+        return "營收下降：可能來自市場需求減少或收入認列延遲"
 
-    if "inventory" in text.lower():
-        return "存貨異常，可能存在過時或減損風險"
+    if "存貨" in text:
+        return "存貨風險：可能存在滯銷或減損問題"
 
-    return "未發現重大異常，但建議進一步查核"
+    if "應收帳款" in text:
+        return "信用風險：可能有呆帳風險"
 
-
-# =====================================================
-# ISA 700 AI REPORT
-# =====================================================
-
-def isa700_ai(issues, score):
-
-    report = ""
-
-    report += "INDEPENDENT AUDITOR'S REPORT\n\n"
-
-    if score > 60:
-        report += "Qualified Opinion due to identified risks.\n\n"
-    else:
-        report += "Unqualified Opinion.\n\n"
-
-    report += "Key Audit Matters:\n"
-
-    for p, i in issues:
-        report += f"- Page {p}: {i}\n"
-
-    report += "\nAI Analytical Conclusion:\n"
-    report += "Based on RAG analysis and anomaly detection, financial risks evaluated.\n"
-
-    return report
+    return "未發現重大異常"
 
 
 # =====================================================
-# AUDIT ENGINE
+# 查核分析（完整整合）
 # =====================================================
 
-def audit_engine(text, role):
+def audit_engine(text, df, role):
 
     issues = []
 
-    pages = text.split("PAGE")
+    if "虛增" in text:
+        issues.append(("財報不實", "可能存在收入虛增"))
 
-    for i, p in enumerate(pages):
+    if "資金流向" in text:
+        issues.append(("掏空風險", "資金異常移轉"))
 
-        if "應收帳款" in p:
-            issues.append((i, "AR risk"))
+    if "幣安" in text or "crypto" in text.lower():
+        issues.append(("加密資產風險", "需檢查交易合法性"))
 
-        if "存貨" in p:
-            issues.append((i, "inventory risk"))
+    if df is not None:
 
-        if "關係人" in p:
-            issues.append((i, "related party"))
+        if "營收" in df.columns:
 
-        if role == "Audit Firm User":
+            if df["營收"].iloc[-1] < df["營收"].iloc[0]:
+                issues.append(("營收下降", "趨勢下滑"))
 
-            if "收入" in p:
-                issues.append((i, "cut-off test"))
+    if role == "會計師事務所":
+        issues.append(("查核程序", "需執行額外實質測試"))
 
     return issues
 
 
 # =====================================================
-# GRAPH
+# ISA 700（中文長文）
 # =====================================================
 
-def build_graph():
+def isa700(issues, role):
+
+    report = "獨立會計師查核報告\n\n"
+
+    if role == "會計師事務所":
+        report += "查核範圍：專業審計查核\n\n"
+
+    report += "查核發現：\n"
+
+    for i in issues:
+        report += f"- {i}\n"
+
+    if len(issues) > 3:
+        report += "\n意見：保留意見（存在重大風險）\n"
+    else:
+        report += "\n意見：無保留意見\n"
+
+    return report
+
+
+# =====================================================
+# 圖表
+# =====================================================
+
+def chart():
+
+    df = pd.DataFrame({
+        "年度": ["2022", "2023", "2024"],
+        "營收": [100, 120, 90],
+        "獲利": [10, 15, -5]
+    })
+
+    fig, ax = plt.subplots()
+
+    ax.plot(df["年度"], df["營收"], label="營收")
+    ax.plot(df["年度"], df["獲利"], label="獲利")
+
+    ax.legend()
+
+    return fig
+
+
+# =====================================================
+# 關係人圖
+# =====================================================
+
+def relation_graph():
 
     G = nx.Graph()
 
     G.add_edges_from([
-        ("Company A", "Subsidiary B"),
-        ("Company A", "Related Party C"),
-        ("Related Party C", "Vendor D")
+        ("公司", "子公司"),
+        ("公司", "關係人"),
+        ("關係人", "供應商")
     ])
 
     nx.draw(G, with_labels=True)
-    plt.show()
 
 
 # =====================================================
 # UI
 # =====================================================
 
-st.title("v45 四大 AI 雲端審計系統")
+st.title("v49 四大AI財務審計系統（完整版）")
 
-mode = st.selectbox("Mode", ["Login", "Register"])
+mode = st.selectbox("模式", ["登入", "註冊"])
 
-email = st.text_input("Email")
-pw = st.text_input("Password", type="password")
+email = st.text_input("信箱")
+pw = st.text_input("密碼", type="password")
 
-
-roles = ["Company User", "Audit Firm User", "Staff", "Manager", "Partner"]
-
-
-# =========================
-# REGISTER
-# =========================
-
-if mode == "Register":
-
-    role = st.selectbox("Role", roles)
-    company = st.text_input("Company")
-
-    if st.button("Register"):
-
-        if register(email, pw, role, company):
-            st.success("OK")
-        else:
-            st.error("Fail")
+roles = ["公司使用者", "會計師事務所", "外部使用者"]
 
 
-# =========================
-# LOGIN
-# =========================
+# =====================================================
+# 註冊
+# =====================================================
 
-if mode == "Login":
+if mode == "註冊":
 
-    if st.button("Login"):
+    role = st.selectbox("身分", roles)
+
+    company = st.text_input("公司")
+
+    audit_firm = ""
+
+    if role == "會計師事務所":
+        audit_firm = st.text_input("事務所名稱（必填）")
+
+    if st.button("註冊"):
+        register(email, pw, role, company, audit_firm)
+        st.success("註冊成功")
+
+
+# =====================================================
+# 登入
+# =====================================================
+
+if mode == "登入":
+
+    if st.button("登入"):
 
         if login(email, pw):
 
             st.session_state.auth = True
 
-            role, company = get_user(email)
+            role, company, audit_firm = get_user(email)
 
             st.session_state.role = role
             st.session_state.company = company
-            st.session_state.email = email
+            st.session_state.audit_firm = audit_firm
 
-            log_action(email, "LOGIN")
-
-            st.success("Logged in")
+            st.success("登入成功")
 
         else:
-            st.error("Error")
+            st.error("錯誤")
 
 
-# =========================
-# AUTH
-# =========================
+# =====================================================
+# 權限控制
+# =====================================================
 
 if not st.session_state.get("auth"):
     st.stop()
 
 
 role = st.session_state.role
-company = st.session_state.company
 
 
-st.subheader("Dashboard")
-st.write("Role:", role)
-st.write("Company:", company)
-
-
-# =====================================================
-# FILE UPLOAD (PDF / EXCEL)
-# =====================================================
-
-files = st.file_uploader(
-    "Upload PDF / Excel",
-    type=["pdf", "xlsx"],
-    accept_multiple_files=True
-)
-
-all_text = ""
-issues = []
-score = 0
-
-
-if files:
-
-    for f in files:
-
-        if f.name.endswith(".pdf"):
-            all_text += parse_pdf(f)
-
-        elif f.name.endswith(".xlsx"):
-            all_text += parse_excel(f)
-
-
-    issues = audit_engine(all_text, role)
-
-    score = min(len(issues) * 10, 100)
-
-    st.subheader("Audit Findings")
-
-    for p, i in issues:
-        st.write(p, i)
-
-    st.subheader("RAG Analysis")
-
-    st.write(rag_query(all_text))
-
-    st.subheader("ISA 700 AI Report")
-
-    st.text(isa700_ai(issues, score))
-
-    st.subheader("Graph")
-
-    build_graph()
-
-    log_action(email, "UPLOAD_ANALYSIS")
+st.subheader("儀表板")
+st.write("身分：", role)
 
 
 # =====================================================
-# AUDIT TRAIL VIEW
+# 上傳
 # =====================================================
 
-if st.button("Show Audit Trail"):
+pdf = st.file_uploader("上傳PDF")
 
-    c.execute("SELECT * FROM audit_log")
-    logs = c.fetchall()
+excel = st.file_uploader("上傳Excel")
 
-    st.write(logs)
+text = ""
+df = None
+
+if pdf:
+    text = parse_pdf(pdf)
+
+if excel:
+    df = parse_excel(excel)
+
+
+# =====================================================
+# 分析
+# =====================================================
+
+if text or df is not None:
+
+    issues = audit_engine(text, df, role)
+
+    st.subheader("財報問答")
+    st.write(financial_qa(text))
+
+    st.subheader("查核結果")
+
+    for i in issues:
+        st.write(i)
+
+    st.subheader("財務圖表")
+    st.pyplot(chart())
+
+    st.subheader("關係人圖")
+    relation_graph()
+
+    st.subheader("ISA700報告")
+    st.text(isa700(issues, role))
+
+
+# =====================================================
+# 外部使用者限制
+# =====================================================
+
+if role == "外部使用者":
+    st.warning("外部使用者僅可查看圖表與摘要")

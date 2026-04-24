@@ -28,7 +28,7 @@ try:
     fm.fontManager.ttflist.insert(0, fe)
     plt.rcParams['font.family'] = fe.name
     plt.rcParams['axes.unicode_minus'] = False # 讓負號不變亂碼
-    st.sidebar.success("✅ 中文字體修復成功")
+    st.sidebar.succes
 except:
     st.sidebar.error("❌ 網路連線失敗，無法修復亂碼")
 
@@ -48,7 +48,7 @@ def run_audit(uploaded_file):
     return pd.DataFrame({'年度': years, '帳面淨利': ni, '經營現金流': cf}), score
 
 # --- 3. 介面呈現 ---
-st.title("⚖️ 專業財務鑑定工作站 (亂碼修復版)")
+st.title(" 專業財務鑑定工作站 ")
 
 with st.sidebar:
     audio_file = st.file_uploader("1. 載入警報音檔 (.mp3)", type=["mp3"])
@@ -57,7 +57,7 @@ uploaded_pdfs = st.file_uploader("2. 上傳 PDF 報表", type=["pdf"], accept_mu
 
 if uploaded_pdfs and audio_file:
     names = [p.name for p in uploaded_pdfs]
-    selected = st.selectbox("🎯 選擇鑑定對象：", names)
+    selected = st.selectbox("  選擇鑑定對象：", names)
     
     target = next(p for p in uploaded_pdfs if p.name == selected)
     df, score = run_audit(target)
@@ -82,4 +82,4 @@ if uploaded_pdfs and audio_file:
         if st.button("🛑 停止警報"):
             st.components.v1.html('<script>window.parent.document.stopS();</script>', height=0)
 else:
-    st.info("👋 您好！請先上傳音檔與 PDF，系統會自動修復中文亂碼。")
+    st.info(" 您好！請先上傳音檔與 PDF，系統會自動修復中文亂碼。")

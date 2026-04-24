@@ -10,18 +10,18 @@ import io
 
 
 # =====================================================
-# 🏢 系統標題（你固定要的風格）
+# 🏢 系統標題（固定玄武會計師事務所）
 # =====================================================
 
 st.markdown("""
 #  玄武會計師事務所
-## AI 四大財務 + 年度分析 + 查核整合系統 v64
+## AI 四大報表 + 年度分析 + 舞弊查核整合系統 v66
 ---
 """)
 
 
 # =====================================================
-# 🗄️ DB（多租戶 SaaS 基礎）
+# 🗄️ DB（修正版：避免 crash）
 # =====================================================
 
 conn = sqlite3.connect("audit.db", check_same_thread=False)
@@ -41,7 +41,7 @@ conn.commit()
 
 
 # =====================================================
-# 🔐 加密
+# 🔐 hash
 # =====================================================
 
 def hash_pw(pw):
@@ -49,20 +49,34 @@ def hash_pw(pw):
 
 
 # =====================================================
-# 註冊（你要求的互斥已整合）
+# 🧾 註冊（已修復：防重複）
 # =====================================================
 
 def register(email, pw, role, company, firm):
 
-    c.execute(
-        "INSERT INTO users VALUES (?,?,?,?,?)",
-        (email, hash_pw(pw), role, company, firm)
-    )
-    conn.commit()
+    try:
+
+        # 🔍 防止重複
+        c.execute("SELECT email FROM users WHERE email=?", (email,))
+        if c.fetchone():
+            st.error("Email 已存在")
+            return
+
+        c.execute(
+            "INSERT INTO users VALUES (?,?,?,?,?)",
+            (email, hash_pw(pw), role, company, firm)
+        )
+
+        conn.commit()
+
+        st.success("註冊成功")
+
+    except Exception as e:
+        st.error(str(e))
 
 
 # =====================================================
-# 登入
+# 🔐 login
 # =====================================================
 
 def login(email, pw):
@@ -73,7 +87,7 @@ def login(email, pw):
     return r and r[0] == hash_pw(pw)
 
 
-def get_user(email):
+def get_role(email):
 
     c.execute("SELECT role FROM users WHERE email=?", (email,))
     r = c.fetchone()
@@ -82,7 +96,7 @@ def get_user(email):
 
 
 # =====================================================
-# 🧾 登入 / 註冊 UI（完整）
+# 🧾 UI（登入 / 註冊）
 # =====================================================
 
 mode = st.selectbox("入口", ["登入", "註冊"])
@@ -90,40 +104,34 @@ mode = st.selectbox("入口", ["登入", "註冊"])
 email = st.text_input("Email")
 pw = st.text_input("密碼", type="password")
 
-role_list = ["公司使用者", "會計師事務所", "外部使用者"]
+roles = ["公司使用者", "會計師事務所", "外部使用者"]
 
 
 # =====================================================
-# 🧾 註冊（互斥邏輯完整）
+# 🧾 註冊（互斥欄位：你要求的）
 # =====================================================
 
 if mode == "註冊":
 
-    role = st.selectbox("身分", role_list)
+    role = st.selectbox("身分", roles)
 
     company = ""
     firm = ""
 
-    # ⭐互斥控制（你全部需求）
     if role == "公司使用者":
+
         company = st.text_input("公司名稱（只能填這個）")
-        st.write("系統：公司模式（不可填事務所）")
+        st.write("公司模式：不可填事務所")
 
     elif role == "會計師事務所":
+
         firm = st.text_input("會計師事務所名稱（只能填這個）")
-        st.write("系統：事務所模式（不可填公司）")
+        st.write("事務所模式：不可填公司")
+
 
     if st.button("註冊"):
 
-        if role == "公司使用者" and company == "":
-            st.error("請輸入公司名稱")
-
-        elif role == "會計師事務所" and firm == "":
-            st.error("請輸入事務所名稱")
-
-        else:
-            register(email, pw, role, company, firm)
-            st.success("註冊成功")
+        register(email, pw, role, company, firm)
 
 
 # =====================================================
@@ -137,7 +145,7 @@ if mode == "登入":
         if login(email, pw):
 
             st.session_state.auth = True
-            st.session_state.role = get_user(email)
+            st.session_state.role = get_role(email)
 
             st.success("登入成功")
 
@@ -146,7 +154,7 @@ if mode == "登入":
 
 
 # =====================================================
-# 🚫 未登入禁止
+# 🚫 保護
 # =====================================================
 
 if not st.session_state.get("auth"):
@@ -159,7 +167,7 @@ st.subheader(f"目前身分：{role}")
 
 
 # =====================================================
-# 📄 多檔PDF + Excel
+# 📄 PDF（多選）
 # =====================================================
 
 pdf_files = st.file_uploader(
@@ -167,6 +175,11 @@ pdf_files = st.file_uploader(
     type=["pdf"],
     accept_multiple_files=True
 )
+
+
+# =====================================================
+# 📊 Excel
+# =====================================================
 
 excel_file = st.file_uploader("上傳Excel")
 
@@ -188,10 +201,10 @@ def parse_pdfs(files):
 
 
 # =====================================================
-# 📊 年度資料（真實應該接Excel/XBRL）
+# 📊 年度資料（含比較）
 # =====================================================
 
-def build_yearly_data():
+def yearly_data():
 
     return pd.DataFrame({
         "年度": ["2022", "2023", "2024"],
@@ -203,18 +216,18 @@ def build_yearly_data():
 
 
 # =====================================================
-# 🧠 核心分析（四大報表 + 舞弊 + 年度）
+# 🧠 核心分析（全部整合）
 # =====================================================
 
 def analyze(text, df, role):
 
     core = []
     suggestions = []
-    yearly = []
+    yearly_notes = []
 
-    # =====================
+    # =========================
     # 四大報表
-    # =====================
+    # =========================
 
     if "資產" in text:
         core.append(("資產負債表", "流動性分析", 70))
@@ -226,56 +239,58 @@ def analyze(text, df, role):
         core.append(("損益表", "收入認列", 65))
 
     if "現金流量" in text:
-        core.append(("現金流量表", "現金流穩定性", 55))
+        core.append(("現金流量表", "現金流分析", 55))
 
 
-    # =====================
+    # =========================
     # 舞弊 / 掏空 / 不實
-    # =====================
+    # =========================
 
     if "虛增" in text:
         core.append(("財報不實", "收入虛增", 90))
-        suggestions.append("查：收入 / 應收帳款")
+        suggestions.append("查：收入/應收帳款")
 
     if "資金流向" in text:
         core.append(("掏空", "資金異常", 85))
-        suggestions.append("查：現金 / 關係人交易")
+        suggestions.append("查：現金/關係人")
 
     if "偽造" in text:
         core.append(("舞弊", "文件異常", 95))
         suggestions.append("查：憑證")
 
 
-    # =====================
-    # 年度分析（你這次重點）
-    # =====================
+    # =========================
+    # 年度分析（你要的）
+    # =========================
 
     df["營收成長率"] = df["營收"].pct_change()
 
     if df["營收"].iloc[-1] < df["營收"].iloc[0]:
-        yearly.append("營收下降趨勢")
+        yearly_notes.append("營收下降")
 
     if df["獲利"].iloc[-1] < 0:
-        yearly.append("最新年度虧損")
+        yearly_notes.append("虧損出現")
 
     if df["負債"].iloc[-1] > df["負債"].iloc[0]:
-        yearly.append("負債增加")
+        yearly_notes.append("負債上升")
 
 
-    # =====================
-    # 事務所模式加深
-    # =====================
+    # =========================
+    # 事務所模式
+    # =========================
 
     if role == "會計師事務所":
+
         suggestions += [
             "查核：收入認列",
             "查核：應收帳款",
             "查核：存貨",
-            "查核：關係人交易",
-            "查核：現金流量"
+            "查核：關係人",
+            "查核：現金流"
         ]
 
-    return core, suggestions, yearly, df
+
+    return core, suggestions, yearly_notes, df
 
 
 # =====================================================
@@ -295,19 +310,19 @@ def chart(df):
 
 
 # =====================================================
-# 📄 Word（全部整合）
+# 📄 Word
 # =====================================================
 
 def make_word(core, suggestions, yearly, df, fig):
 
     doc = Document()
 
-    doc.add_heading("ISA 700 財務查核完整報告", 0)
+    doc.add_heading("ISA700 查核報告", 0)
 
     doc.add_heading("財務分析", 1)
 
     for c in core:
-        doc.add_paragraph(f"{c[0]}：{c[1]}（{c[2]}）")
+        doc.add_paragraph(str(c))
 
     doc.add_heading("年度分析", 1)
 
@@ -334,7 +349,7 @@ def make_word(core, suggestions, yearly, df, fig):
 
 
 # =====================================================
-# 📊 Excel（全部整合）
+# 📊 Excel
 # =====================================================
 
 def make_excel(core, suggestions, yearly, df):
@@ -344,11 +359,8 @@ def make_excel(core, suggestions, yearly, df):
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
 
         pd.DataFrame(core).to_excel(writer, sheet_name="分析")
-
         pd.DataFrame(suggestions).to_excel(writer, sheet_name="查核")
-
         pd.DataFrame(yearly).to_excel(writer, sheet_name="年度")
-
         df.to_excel(writer, sheet_name="數據")
 
     output.seek(0)
@@ -364,34 +376,24 @@ if pdf_files:
 
     text = parse_pdfs(pdf_files)
 
-    df = build_yearly_data()
+    df = yearly_data()
 
     core, suggestions, yearly, df = analyze(text, df, role)
 
 
     st.subheader("財務分析")
-
     for c in core:
         st.write(c)
 
 
     st.subheader("年度分析")
-
     for y in yearly:
         st.write(y)
 
 
     fig = chart(df)
-
     st.pyplot(fig)
 
 
-    st.download_button(
-        "Word報告",
-        make_word(core, suggestions, yearly, df, fig)
-    )
-
-    st.download_button(
-        "Excel報告",
-        make_excel(core, suggestions, yearly, df)
-    )
+    st.download_button("Word報告", make_word(core, suggestions, yearly, df, fig))
+    st.download_button("Excel報告", make_excel(core, suggestions, yearly, df))

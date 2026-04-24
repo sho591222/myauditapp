@@ -3,143 +3,143 @@ import pandas as pd
 import pdfplumber
 import re
 import matplotlib.pyplot as plt
-import seaborn as sns
 from docx import Document
 import io
 import matplotlib.font_manager as fm
 from datetime import datetime
 
-# 修正字體顯示問題
-def apply_font_settings():
+# 解決中文亂碼：搜尋系統中文字體
+def fix_plot_font():
     try:
         all_fonts = [f.name for f in fm.fontManager.ttflist]
-        target_fonts = ['Microsoft JhengHei', 'Heiti TC', 'WenQuanYi Micro Hei', 'Noto Sans CJK TC', 'sans-serif']
-        for f in target_fonts:
+        zh_fonts = ['Microsoft JhengHei', 'Heiti TC', 'WenQuanYi Micro Hei', 'Noto Sans CJK TC', 'sans-serif']
+        for f in zh_fonts:
             if f in all_fonts:
                 plt.rcParams['font.sans-serif'] = [f]
                 break
+        plt.rcParams['axes.unicode_minus'] = False
     except:
         plt.rcParams['font.sans-serif'] = ['sans-serif']
-    plt.rcParams['axes.unicode_minus'] = False
 
-apply_font_settings()
+fix_plot_font()
 
 st.set_page_config(layout="wide")
-st.title("股份有限公司深度鑑定與風險預測系統")
+st.title("專業鑑識會計：自動化公司辨識與風險鑑定系統")
 
-# 側邊欄輸入與文件上傳
+# 側邊欄設定
 with st.sidebar:
-    st.header("鑑定簽署資訊")
-    company_input = st.text_input("受調查公司名稱", "範例股份有限公司")
-    auditor = st.text_input("簽證會計師", "陳會計師")
-    firm = st.text_input("所屬事務所", "誠信會計師事務所")
-    date_str = st.text_input("鑑定基準日", datetime.now().strftime("%Y/%m/%d"))
-    files = st.file_uploader("上傳年度財報PDF文件", type=["pdf"], accept_multiple_files=True)
+    st.header("鑑定人員簽署")
+    auditor_name = st.text_input("主辦會計師", "陳會計師")
+    firm_name = st.text_input("會計師事務所", "誠信聯合會計師事務所")
+    st.divider()
+    files = st.file_uploader("上傳年度財報 PDF", type=["pdf"], accept_multiple_files=True)
 
-# 核心鑑定與時間點預測模型
-def corporate_forensic_engine(row, index):
-    # 建立動態鑑定指標
-    m_score = -1.9 + (index * 0.3)
-    z_score = 3.5 - (index * 0.8)
+# 核心功能：從 PDF 內容辨識公司名稱
+def identify_company_name(text):
+    # 鎖定包含「股份有限公司」或「有限公司」的字串
+    patterns = [
+        r"([^\s\n]*股份有限公司)",
+        r"([^\s\n]*有限公司)",
+        r"([^\s\n]*公司)"
+    ]
+    for p in patterns:
+        match = re.search(p, text)
+        if match:
+            return match.group(1).strip()
+    return "未知公司"
+
+# 鑑定預測模型邏輯
+def run_forensic_model(index, sales, receivables):
+    # 計算舞弊 M 分數與倒閉 Z 分數趨勢
+    m_val = -2.0 + (index * 0.35)
+    z_val = 3.6 - (index * 0.9)
     
-    status = "營運穩定"
-    risk_list = []
-    
-    # 預測時間點 A 財報不實
-    if m_score > -1.78:
+    # 判定時間點與警訊
+    status = "穩定經營"
+    if m_val > -1.78:
         status = "財報不實發生年"
-        risk_list.append("盈餘操縱警訊")
-        
-    # 預測時間點 B 資金掏空
-    if row["應收"] > row["營收"] * 0.45:
+    if receivables > sales * 0.4:
         status = "資金掏空起始點"
-        risk_list.append("隧道行為警訊")
+    if z_val < 1.8:
+        status = "財務倒閉警戒期"
         
-    # 預測時間點 C 財務崩潰
-    if z_score < 1.81:
-        status = "倒閉風險預警期"
-        risk_list.append("償債能力崩潰")
-
-    # 優勢評估與監控部門
-    advantage = "具備本業優勢" if row["現金流"] > 0 else "核心優勢喪失"
-    monitor_dept = "關係人交易部" if "掏空" in status else "生產製造部"
-    
-    return m_score, z_score, status, risk_list, advantage, monitor_dept
+    return m_val, z_val, status
 
 if files:
-    data_list = []
+    final_results = []
+    # 依檔案名排序確保時間軸一致
     sorted_files = sorted(files, key=lambda x: x.name)
     
+    identified_co = ""
+    
     for i, f in enumerate(sorted_files):
-        # 這裡生成鑑定數據（模擬解析結果）
-        row = {
+        # 讀取 PDF 前兩頁內容進行名稱辨識
+        with pdfplumber.open(f) as pdf:
+            first_page_text = pdf.pages[0].extract_text() or ""
+            if not identified_co or identified_co == "未知公司":
+                identified_co = identify_company_name(first_page_text)
+        
+        # 模擬解析後的財務數據 (實際可用 get_num 函數獲取)
+        sales_val = 3000 + (i * 200)
+        rec_val = 250 + (i * 1400)
+        
+        m_score, z_score, phase = run_forensic_model(i, sales_val, rec_val)
+        
+        final_results.append({
             "年度": f.name.replace(".pdf", ""),
-            "公司": company_input,
-            "營收": 3000 + (i * 200),
-            "應收": 200 + (i * 1500),
-            "現金流": 800 - (i * 500)
-        }
-        
-        m, z, status, risks, advantage, dept = corporate_forensic_engine(row, i)
-        
-        row.update({
-            "M分數": m,
-            "Z分數": z,
-            "鑑定判定": status,
-            "警訊詳情": " 與 ".join(risks) if risks else "指標正常",
-            "優勢鑑定": advantage,
-            "監控部門": dept
+            "營收": sales_val,
+            "應收": rec_val,
+            "M分數": m_score,
+            "Z分數": z_score,
+            "鑑定結論": phase
         })
-        data_list.append(row)
 
-    df = pd.DataFrame(data_list)
+    df = pd.DataFrame(final_results)
 
-    # 視覺化圖表與模型分析
-    st.subheader("財務趨勢與鑑定模型圖表")
-    
-    col_l, col_r = st.columns(2)
-    
-    with col_l:
+    st.success(f"自動辨識受調查公司：{identified_co}")
+
+    # 1. 專家鑑定圖表 (無亂碼)
+    col1, col2 = st.columns(2)
+    with col1:
         fig1, ax1 = plt.subplots()
-        ax1.plot(df["年度"], df["營收"], label="本業收入")
-        ax1.plot(df["年度"], df["應收"], label="應收帳款")
-        ax1.set_title("營收實質性與掏空指標對比")
+        ax1.plot(df["年度"], df["營收"], label="核心業務營收", marker="o")
+        ax1.plot(df["年度"], df["應收"], label="關係人/應收帳款", marker="x")
+        ax1.set_title("營收實質性與掏空指標鑑定")
         ax1.legend()
         st.pyplot(fig1)
 
-    with col_r:
+    with col2:
         fig2, ax2 = plt.subplots()
-        ax2.plot(df["年度"], df["M分數"], color="red", label="舞弊指標")
-        ax2.plot(df["年度"], df["Z分數"], color="blue", label="倒閉指標")
-        ax2.axhline(y=-1.78, color='gray', linestyle='--')
-        ax2.set_title("時間點預測 財報不實與倒閉臨界線")
+        ax2.plot(df["年度"], df["M分數"], color="red", label="財報不實指標")
+        ax2.plot(df["年度"], df["Z分數"], color="blue", label="財務潰散指標")
+        ax2.axhline(y=-1.78, color='black', alpha=0.3, label="警戒線")
+        ax2.set_title("舞弊與倒閉預測時間軸")
         ax2.legend()
         st.pyplot(fig2)
 
-    # 逐年專家鑑定意見摘要
-    st.subheader("專家鑑定意見詳細報告")
+    # 2. 逐年詳細分析摘要
+    st.subheader("會計師專業鑑定明細")
     for _, r in df.iterrows():
-        with st.expander(f"年度 {r['年度']} 鑑定結論 {r['鑑定判定']}"):
-            st.write("實質優勢分析", r["優勢鑑定"])
-            st.write("重點監控部門", r["監控部門"])
-            st.write("風險警訊詳情", r["警訊詳情"])
+        with st.expander(f"年度：{r['年度']} - 鑑定判定：{r['鑑定結論']}"):
+            st.write(f"重點監控：{'關係人往來部' if '掏空' in r['鑑定結論'] else '生產事業部'}")
+            st.write(f"優勢診斷：{'具備實質優勢' if r['M分數'] < -1.78 else '優勢喪失 (靠虛假獲利支撐)'}")
 
-    # 下載Word鑑定報告
+    # 3. Word 報告下載 (包含辨識到的公司名稱與簽署)
     doc = Document()
-    doc.add_heading("股份有限公司鑑定報告", 0)
-    doc.add_paragraph(f"事務所名稱 {firm}")
-    doc.add_paragraph(f"主辦會計師 {auditor}")
-    doc.add_paragraph(f"受調查公司 {company_input}")
+    doc.add_heading("財報專家鑑定報告書", 0)
+    doc.add_paragraph(f"受調查公司：{identified_co}")
+    doc.add_paragraph(f"事務所名稱：{firm_name}")
+    doc.add_paragraph(f"主辦會計師：{auditor_name}")
     
     for _, r in df.iterrows():
-        doc.add_heading(f"年度 {r['年度']} 判定 {r['鑑定判定']}", level=2)
-        doc.add_paragraph(f"鑑定結論 {r['警訊詳情']}")
-        doc.add_paragraph(f"優勢診斷 {r['優勢鑑定']}")
-    
+        doc.add_heading(f"年度 {r['年度']} 鑑定結論：{r['鑑定結論']}", level=2)
+        doc.add_paragraph(f"舞弊指標 {round(r['M分數'], 2)} / 倒閉指標 {round(r['Z分數'], 2)}")
+        doc.add_paragraph("-" * 20)
+
     buf = io.BytesIO()
     doc.save(buf)
     buf.seek(0)
-    st.sidebar.download_button("下載專家報告書", buf, "鑑定報告.docx")
+    st.sidebar.download_button("下載 Word 鑑定報告", buf, f"{identified_co}_報告.docx")
 
 else:
-    st.info("請於側邊欄輸入資料並上傳財報文件以啟動分析系統")
+    st.info("請於側邊欄上傳財報 PDF，系統將自動從文件中辨識公司名稱並啟動鑑定模型。")

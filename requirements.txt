@@ -1,12 +1,7 @@
 streamlit
 pandas
-pdfplumber
+openpyxl
+python-docx
+pypdf
 fpdf2
 matplotlib
-fonttools
-requests
-streamlit
-pandas
-openpyxl        # 如果您需要將鑑定結果匯出成 Excel
-python-docx     # 如果您之後想要按一個鈕就下載 Word 檔
-pypdf           # 如果您需要程式「讀取」上傳的 PDF 內容來做分析

@@ -3,13 +3,20 @@ import sqlite3
 import hashlib
 import random
 import string
+import pdfplumber
+import pandas as pd
+import matplotlib.pyplot as plt
+import io
+import re
+from docx import Document
+from docx.shared import Inches
 
 
-# =========================
-# DATABASE
-# =========================
+# =====================================================
+# 1️⃣ DATABASE
+# =====================================================
 
-conn = sqlite3.connect("users.db", check_same_thread=False)
+conn = sqlite3.connect("audit.db", check_same_thread=False)
 c = conn.cursor()
 
 c.execute("""
@@ -22,104 +29,82 @@ CREATE TABLE IF NOT EXISTS users (
 conn.commit()
 
 
-# =========================
-# HASH
-# =========================
+# =====================================================
+# 2️⃣ AUTH CORE
+# =====================================================
 
 def hash_pw(pw):
     return hashlib.sha256(pw.encode()).hexdigest()
 
 
-# =========================
-# EMAIL FORMAT CHECK
-# =========================
-
 def valid_email(email):
-    return "@" in email and "." in email
+    return isinstance(email, str) and "@" in email and "." in email
 
-
-# =========================
-# REGISTER
-# =========================
 
 def register(email, pw):
 
     if not valid_email(email):
-        return "email_error"
+        return "invalid"
 
     try:
-        c.execute(
-            "INSERT INTO users VALUES (?,?)",
-            (email, hash_pw(pw))
-        )
+        c.execute("INSERT INTO users VALUES (?,?)", (email, hash_pw(pw)))
         conn.commit()
         return "ok"
-
     except:
         return "exists"
 
 
-# =========================
-# LOGIN
-# =========================
-
 def login(email, pw):
 
     c.execute("SELECT password FROM users WHERE email=?", (email,))
-    d = c.fetchone()
+    r = c.fetchone()
 
-    if d and d[0] == hash_pw(pw):
-        return True
+    return r and r[0] == hash_pw(pw)
 
-    return False
-
-
-# =========================
-# RESET PASSWORD (SIMULATION)
-# =========================
 
 def reset_password(email):
 
     c.execute("SELECT email FROM users WHERE email=?", (email,))
-    d = c.fetchone()
+    r = c.fetchone()
 
-    if not d:
+    if not r:
         return False, None
 
-    new_pw = ''.join(random.choices(string.ascii_letters + string.digits, k=8))
+    new_pw = ''.join(random.choices(string.ascii_letters + string.digits, k=10))
 
-    c.execute(
-        "UPDATE users SET password=? WHERE email=?",
-        (hash_pw(new_pw), email)
-    )
+    c.execute("UPDATE users SET password=? WHERE email=?",
+              (hash_pw(new_pw), email))
     conn.commit()
 
     return True, new_pw
 
 
-# =========================
-# SESSION
-# =========================
+# =====================================================
+# 3️⃣ SESSION
+# =====================================================
 
 if "auth" not in st.session_state:
     st.session_state.auth = False
+
+if "role" not in st.session_state:
+    st.session_state.role = None
 
 if "page" not in st.session_state:
     st.session_state.page = "login"
 
 
-# =========================
-# UI
-# =========================
+# =====================================================
+# 4️⃣ UI HEADER
+# =====================================================
 
-st.title("玄武會計師事務所｜AI 財報系統 v32（Email SaaS）")
+st.title("玄武會計師事務所｜AI 四大查核系統 v40（完整企業版）")
 
 
-# =========================
-# NAV
-# =========================
+# =====================================================
+# 5️⃣ NAVIGATION
+# =====================================================
 
-st.sidebar.title("帳號系統")
+st.sidebar.title("系統")
 
 if st.sidebar.button("註冊"):
     st.session_state.page = "register"
@@ -131,34 +116,34 @@ if st.sidebar.button("忘記密碼"):
     st.session_state.page = "reset"
 
 
-# =========================
-# REGISTER PAGE
-# =========================
+# =====================================================
+# 6️⃣ REGISTER
+# =====================================================
 
 if st.session_state.page == "register":
 
-    st.subheader("註冊（Email帳號）")
+    st.subheader("註冊（Email）")
 
     email = st.text_input("Email")
     pw = st.text_input("密碼", type="password")
 
-    if st.button("建立帳號"):
+    if st.button("註冊"):
 
-        result = register(email, pw)
+        res = register(email, pw)
 
-        if result == "ok":
-            st.success("註冊成功，請登入")
+        if res == "ok":
+            st.success("註冊成功")
 
-        elif result == "exists":
-            st.error("Email 已存在")
+        elif res == "exists":
+            st.error("Email已存在")
 
         else:
-            st.error("Email 格式錯誤")
+            st.error("Email格式錯誤")
 
 
-# =========================
-# LOGIN PAGE
-# =========================
+# =====================================================
+# 7️⃣ LOGIN
+# =====================================================
 
 if st.session_state.page == "login":
 
@@ -177,58 +162,182 @@ if st.session_state.page == "login":
             st.success("登入成功")
 
         else:
-            st.error("帳號或密碼錯誤")
+            st.error("錯誤")
 
 
-# =========================
-# RESET PASSWORD PAGE
-# =========================
+# =====================================================
+# 8️⃣ RESET PASSWORD (EMAIL SIMULATION)
+# =====================================================
 
 if st.session_state.page == "reset":
 
     st.subheader("忘記密碼")
 
-    email = st.text_input("輸入Email")
+    email = st.text_input("Email")
 
     if st.button("寄送重設密碼"):
 
         ok, new_pw = reset_password(email)
 
         if ok:
-
-            st.success("已重設密碼（模擬Email寄送）")
+            st.success("已重設（模擬Email）")
             st.info(f"新密碼：{new_pw}")
-
         else:
             st.error("Email不存在")
 
 
-# =========================
-# MAIN SYSTEM LOCK
-# =========================
+# =====================================================
+# 9️⃣ AUTH BLOCK
+# =====================================================
 
 if not st.session_state.auth:
-
-    st.warning("請先登入（Email帳號）")
+    st.warning("請先登入")
     st.stop()
 
 
-# =========================
-# MAIN SYSTEM
-# =========================
+# =====================================================
+# 🔟 ROLE SELECT
+# =====================================================
 
-st.divider()
+st.subheader("選擇模式")
 
-st.subheader("財報分析系統")
+role = st.selectbox("角色", ["公司內部", "會計師事務所"])
 
-st.write("登入帳號：", st.session_state.email)
-
-
-# =========================
-# PDF UPLOAD (placeholder for next stage)
-# =========================
-
-st.file_uploader("上傳財報PDF", type="pdf", accept_multiple_files=True)
+st.session_state.role = role
 
 
-st.info("登入成功後才可進行財報分析（下一版會接上完整查核引擎）")
+# =====================================================
+# 11️⃣ PDF UPLOAD
+# =====================================================
+
+files = st.file_uploader("上傳財報PDF", type="pdf", accept_multiple_files=True)
+
+
+# =====================================================
+# 12️⃣ PDF ANALYSIS ENGINE
+# =====================================================
+
+def parse(file):
+
+    text = ""
+
+    with pdfplumber.open(file) as pdf:
+        for i, p in enumerate(pdf.pages):
+
+            page_text = p.extract_text() or ""
+
+            text += f"\nPAGE {i+1}\n" + page_text
+
+    return text
+
+
+def detect(text):
+
+    issues = []
+
+    pages = re.split(r"PAGE \d+", text)
+
+    for i, p in enumerate(pages):
+
+        page_num = i
+
+        if "應收帳款" in p:
+            issues.append((page_num, "應收帳款異常"))
+
+        if "存貨" in p:
+            issues.append((page_num, "存貨風險"))
+
+        if "關係人" in p:
+            issues.append((page_num, "關係人交易"))
+
+        if st.session_state.role == "會計師事務所":
+
+            if "收入" in p:
+                issues.append((page_num, "cut-off test"))
+
+            if "費用" in p:
+                issues.append((page_num, "完整性測試"))
+
+        else:
+
+            if "費用" in p:
+                issues.append((page_num, "費用異常"))
+
+    return issues
+
+
+# =====================================================
+# 13️⃣ ANALYSIS OUTPUT
+# =====================================================
+
+if files:
+
+    all_text = ""
+
+    for f in files:
+        all_text += parse(f)
+
+    issues = detect(all_text)
+
+    st.subheader("查核發現（頁面級）")
+
+    for p, i in issues:
+        st.write(f"第 {p} 頁 → {i}")
+
+
+# =====================================================
+# 14️⃣ SIMPLE FINANCIAL CHART
+# =====================================================
+
+df = pd.DataFrame({
+    "year": ["2021", "2022", "2023"],
+    "revenue": [1000, 1300, 900],
+    "profit": [100, 150, -50]
+})
+
+fig, ax = plt.subplots()
+ax.plot(df["year"], df["revenue"], label="營收")
+ax.plot(df["year"], df["profit"], label="淨利")
+ax.legend()
+
+st.pyplot(fig)
+
+
+# =====================================================
+# 15️⃣ RISK SCORE
+# =====================================================
+
+score = min(len(issues) * 10, 100)
+
+st.subheader("風險分數")
+st.write(score)
+
+
+# =====================================================
+# 16️⃣ WORD REPORT (FULL)
+# =====================================================
+
+if st.button("產出查核報告"):
+
+    doc = Document()
+
+    doc.add_heading("AI 四大查核報告 v40", 0)
+
+    doc.add_paragraph(f"帳號：{st.session_state.email}")
+    doc.add_paragraph(f"模式：{st.session_state.role}")
+    doc.add_paragraph(f"風險分數：{score}")
+
+    doc.add_paragraph("\n查核發現")
+
+    for p, i in issues:
+        doc.add_paragraph(f"第 {p} 頁 → {i}")
+
+    buffer = io.BytesIO()
+    doc.save(buffer)
+    buffer.seek(0)
+
+    st.download_button(
+        "下載Word報告",
+        buffer,
+        file_name="audit_v40.docx"
+    )

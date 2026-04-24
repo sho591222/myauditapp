@@ -1,105 +1,117 @@
 import streamlit as st
 import pandas as pd
-import pdfplumber
-import re
+import sqlite3
+import datetime
 from docx import Document
 import io
-import time
 
 
 # =========================
-# PAGE CONFIG
+# SYSTEM CONFIG
 # =========================
 
 st.set_page_config(layout="wide")
-st.title("四大會計師事務所｜財報分析與查核系統 v7（Production）")
+st.title("玄武會計師事務所｜雲端企業查核系統 v13")
 
 
 # =========================
-# MODE SELECT
+# ENGAGEMENT HEADER
 # =========================
 
-模式 = st.sidebar.selectbox(
-    "分析模式",
-    ["公司內部分析（Management）", "會計師查核模式（Audit）"]
+firm_name = "玄武會計師事務所"
+
+st.sidebar.subheader("查核資訊")
+
+partner = st.sidebar.text_input("主辦會計師", "玄武主持會計師")
+report_date = st.sidebar.date_input("查核日期")
+
+
+# =========================
+# LOGIN SYSTEM
+# =========================
+
+USERS = {
+    "audit": {"pw": "1234", "role": "audit"},
+    "client": {"pw": "1234", "role": "company"}
+}
+
+if "login" not in st.session_state:
+    st.session_state.login = False
+
+
+st.sidebar.subheader("登入系統")
+
+user = st.sidebar.text_input("帳號")
+pw = st.sidebar.text_input("密碼", type="password")
+
+if st.sidebar.button("登入"):
+    if user in USERS and USERS[user]["pw"] == pw:
+        st.session_state.login = True
+        st.session_state.role = USERS[user]["role"]
+        st.success("登入成功")
+    else:
+        st.error("登入失敗")
+
+
+# =========================
+# DATABASE LAYER
+# =========================
+
+conn = sqlite3.connect("v13.db", check_same_thread=False)
+c = conn.cursor()
+
+c.execute("""
+CREATE TABLE IF NOT EXISTS evidence (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    company TEXT,
+    account TEXT,
+    value REAL,
+    risk TEXT,
+    created_at TEXT
 )
+""")
 
-公司 = st.sidebar.text_input("公司名稱", "ABC股份有限公司")
-
-
-# =========================
-# UPLOAD
-# =========================
-
-files = st.sidebar.file_uploader(
-    "上傳財報 PDF",
-    type="pdf",
-    accept_multiple_files=True
-)
+conn.commit()
 
 
 # =========================
-# AUDIT TRAIL
-# =========================
-
-audit_trail = []
-
-
-# =========================
-# PDF PARSER
-# =========================
-
-def parse_pdf(file):
-
-    text = ""
-
-    with pdfplumber.open(file) as pdf:
-        for page in pdf.pages:
-            text += page.extract_text() or ""
-
-    return text
-
-
-def extract(text, keyword):
-
-    m = re.search(rf"{keyword}.*?([\d,]+)", text, re.DOTALL)
-
-    if m:
-        return float(m.group(1).replace(",", ""))
-
-    return 0
-
-
-# =========================
-# EVIDENCE ENGINE v2
+# EVIDENCE ENGINE v6
 # =========================
 
 class EvidenceEngine:
 
-    def create(self, file, text, account, keyword, page=1):
+    def create(self, company, account, value):
 
-        value = extract(text, keyword)
+        risk = "High" if value > 1000000 else "Low"
 
-        evidence = {
+        c.execute("""
+            INSERT INTO evidence (company, account, value, risk, created_at)
+            VALUES (?, ?, ?, ?, ?)
+        """, (
+            company,
+            account,
+            value,
+            risk,
+            str(datetime.datetime.now())
+        ))
+
+        conn.commit()
+
+        return {
+            "company": company,
             "account": account,
             "value": value,
-            "source": file.name,
-            "page": page,
-            "risk": "High" if value > 1000000 else "Low",
+            "risk": risk,
             "isa": self.map_isa(account),
             "procedure": self.procedure(account),
             "conclusion": self.conclusion(value)
         }
 
-        audit_trail.append(evidence)
-
-        return evidence
-
 
     def map_isa(self, account):
 
         if account == "應收帳款":
-            return ["ISA 315", "ISA 505"]
+            return ["ISA 315", "ISA 505", "ISA 330"]
 
         if account == "營收":
             return ["ISA 240"]
@@ -110,17 +122,10 @@ class EvidenceEngine:
     def procedure(self, account):
 
         if account == "應收帳款":
-            return [
-                "函證測試",
-                "期後收款測試",
-                "合約查核"
-            ]
+            return ["函證", "期後收款測試", "合約查核"]
 
         if account == "存貨":
-            return [
-                "盤點",
-                "成本測試"
-            ]
+            return ["盤點", "成本測試"]
 
         return ["基本查核程序"]
 
@@ -136,130 +141,76 @@ engine = EvidenceEngine()
 
 
 # =========================
-# MANAGEMENT MODE
+# ROLE SYSTEM
 # =========================
 
-def management(fin):
-
-    result = []
-
-    if fin["margin"] < 0.2:
-        result.append("獲利能力偏弱")
-
-    if fin["leverage"] > 2:
-        result.append("槓桿偏高")
-
-    return result
+def mode():
+    if st.session_state.role == "audit":
+        return "事務所模式"
+    return "公司模式"
 
 
 # =========================
-# AUDIT MODE
+# MAIN SYSTEM
 # =========================
 
-def audit(fin, evidence):
+if st.session_state.login:
 
-    result = []
+    st.subheader("系統模式：" + mode())
 
-    if evidence["value"] > 1000000:
-        result.append("應收帳款異常增加（ISA 505）")
+    company = st.text_input("公司名稱", "ABC股份有限公司")
 
-    if fin["margin"] < 0.1:
-        result.append("盈餘品質疑慮（ISA 240）")
+    account = st.selectbox("科目", ["應收帳款", "存貨", "營收"])
 
-    return result
+    value = st.number_input("金額", 0)
+
+    if st.button("執行分析"):
+
+        result = engine.create(company, account, value)
+
+        st.subheader("查核結果")
+
+        st.write(result)
 
 
 # =========================
-# MAIN PROCESS
+# DATABASE VIEW
 # =========================
 
-if files:
+st.subheader("查核資料庫")
 
-    results = []
+df = pd.read_sql_query("SELECT * FROM evidence", conn)
 
-    for f in files:
-
-        st.subheader(f"處理：{f.name}")
-
-        with st.spinner("解析 PDF 中..."):
-            text = parse_pdf(f)
-
-        # 模擬科目
-        acc = "應收帳款"
-
-        evidence = engine.create(
-            file=f,
-            text=text,
-            account=acc,
-            keyword="應收帳款"
-        )
-
-        # 財務簡化模型
-        revenue = extract(text, "營業收入")
-        profit = extract(text, "本期淨利")
-
-        margin = profit / revenue if revenue else 0
-        leverage = 2.5  # 模擬
-
-        fin = {
-            "margin": margin,
-            "leverage": leverage
-        }
-
-        if 模式.startswith("公司"):
-            output = management(fin)
-        else:
-            output = audit(fin, evidence)
-
-        results.append({
-            "file": f.name,
-            "evidence": evidence,
-            "analysis": output
-        })
-
-        st.success("完成")
+st.dataframe(df)
 
 
-    # =========================
-    # DASHBOARD
-    # =========================
+# =========================
+# WORKING PAPER EXPORT
+# =========================
 
-    st.subheader("分析結果")
-
-    df = pd.DataFrame(results)
-    st.dataframe(df)
-
-
-    # =========================
-    # WORKING PAPER EXPORT
-    # =========================
+if st.button("下載工作底稿"):
 
     doc = Document()
-    doc.add_heading("四大會計師事務所｜Working Paper v7", 0)
-    doc.add_paragraph(f"公司：{公司}")
-    doc.add_paragraph(f"模式：{模式}")
 
-    for r in results:
+    doc.add_heading("雲端企業查核工作底稿 v13", 0)
 
-        doc.add_paragraph("=== 查核發現 ===")
-        doc.add_paragraph(str(r["evidence"]))
-        doc.add_paragraph(str(r["analysis"]))
+    doc.add_paragraph("Engagement Information")
+    doc.add_paragraph("會計師事務所：" + firm_name)
+    doc.add_paragraph("主辦會計師：" + partner)
+    doc.add_paragraph("查核日期：" + str(report_date))
+    doc.add_paragraph("模式：" + mode())
+
+    doc.add_paragraph("查核資料")
+
+    for row in df.values:
+        doc.add_paragraph(str(row))
 
     buffer = io.BytesIO()
     doc.save(buffer)
     buffer.seek(0)
 
-    st.sidebar.download_button(
+    st.download_button(
         "下載工作底稿",
         buffer,
-        file_name=f"{公司}_WP_v7.docx"
+        file_name="玄武會計師事務所_v13.docx"
     )
-
-
-# =========================
-# AUDIT TRAIL
-# =========================
-
-st.subheader("查核軌跡（Audit Trail）")
-
-st.dataframe(pd.DataFrame(audit_trail))

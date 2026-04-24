@@ -1,18 +1,14 @@
 import streamlit as st
 import pandas as pd
 import pdfplumber
-import re
 import numpy as np
 import matplotlib.pyplot as plt
 from datetime import datetime
 from docx import Document
 import io
 
-st.title("財報鑑識與舞弊風險分析系統")
+st.title("財報鑑識穩定分析系統")
 
-# -----------------------
-# 基本資訊
-# -----------------------
 company = st.text_input("公司名稱")
 auditor = st.text_input("會計師姓名")
 firm = st.text_input("事務所名稱")
@@ -20,9 +16,9 @@ report_date = st.text_input("查核日期", datetime.now().strftime("%Y/%m/%d"))
 
 files = st.file_uploader("上傳PDF", type=["pdf"], accept_multiple_files=True)
 
-# -----------------------
-# PDF 讀取（純文字）
-# -----------------------
+# -------------------------
+# PDF文字抽取
+# -------------------------
 def read_pdf(file):
     text = ""
     with pdfplumber.open(file) as pdf:
@@ -32,39 +28,37 @@ def read_pdf(file):
                 text += t
     return text
 
-# -----------------------
-# 數據擷取（避免抓不到直接 NaN）
-# -----------------------
-def extract(text):
-
-    def get(pattern):
-        m = re.search(pattern, text)
-        if m:
+# -------------------------
+# 穩定數字解析（不靠單一 regex）
+# -------------------------
+def extract_number(text, keywords):
+    for k in keywords:
+        if k in text:
             try:
-                return float(m.group(1).replace(",", ""))
+                idx = text.index(k)
+                chunk = text[idx:idx+50]
+                num = ""
+                for c in chunk:
+                    if c.replace(",", "").replace(".", "").isdigit():
+                        num += c
+                    elif num:
+                        break
+                return float(num.replace(",", "")) if num else None
             except:
-                return None
-        return None
+                continue
+    return None
 
-    return {
-        "營收": get(r"營業收入[\s:：]*([\d,]+)"),
-        "應收": get(r"應收帳款[\s:：]*([\d,]+)"),
-        "資產": get(r"資產總計[\s:：]*([\d,]+)"),
-        "負債": get(r"流動負債[\s:：]*([\d,]+)"),
-        "現金流": get(r"營業活動.*?([\d,]+)")
-    }
-
-# -----------------------
-# 安全除法（完全防炸）
-# -----------------------
+# -------------------------
+# safe division
+# -------------------------
 def div(a, b):
     if a is None or b is None or b == 0:
         return None
     return a / b
 
-# -----------------------
-# 財務模型
-# -----------------------
+# -------------------------
+# 主模型
+# -------------------------
 def calc(df):
 
     df["M"] = df.apply(
@@ -78,15 +72,15 @@ def calc(df):
             1.2 * div(r["現金流"], r["資產"]) +
             1.4 * div(r["營收"], r["資產"]) +
             3.3 * div(r["營收"], r["負債"])
-        ),
+        ) if all([r["資產"], r["負債"]]) else None,
         axis=1
     )
 
     return df
 
-# -----------------------
-# 風險分析（三大類）
-# -----------------------
+# -------------------------
+# 風險分析
+# -------------------------
 def risk(row):
 
     fraud = 0
@@ -99,9 +93,9 @@ def risk(row):
     if row["現金流"] and row["現金流"] < 0:
         fraud += 1
 
-    if row["應收"] and row["營收"]:
-        ratio = div(row["應收"], row["營收"])
-        if ratio and ratio > 0.5:
+    if row["營收"] and row["應收"]:
+        r = div(row["應收"], row["營收"])
+        if r and r > 0.5:
             embezzle += 1
 
     if row["Z"] and row["Z"] < 1.81:
@@ -110,45 +104,51 @@ def risk(row):
     if row["資產"] and row["負債"] and row["負債"] > row["資產"]:
         scandal += 1
 
-    result = []
+    res = []
 
     if fraud >= 2:
-        result.append("財報不實風險")
+        res.append("財報不實風險")
 
     if embezzle >= 2:
-        result.append("疑似資產掏空")
+        res.append("疑似掏空")
 
     if scandal >= 2:
-        result.append("重大財務異常")
+        res.append("重大財務異常")
 
-    return " / ".join(result) if result else "正常"
+    return " / ".join(res) if res else "正常"
 
-# -----------------------
+# -------------------------
 # 主流程
-# -----------------------
+# -------------------------
 if files:
 
     rows = []
 
     for f in files:
+
         text = read_pdf(f)
 
-        # DEBUG（避免你再遇到空圖問題）
-        st.text(text[:500])
+        # DEBUG（非常重要）
+        st.text(text[:300])
 
-        d = extract(text)
-        d["年度"] = f.name
+        d = {
+            "年度": f.name,
+            "營收": extract_number(text, ["營業收入", "營收"]),
+            "應收": extract_number(text, ["應收帳款"]),
+            "資產": extract_number(text, ["資產總計"]),
+            "負債": extract_number(text, ["流動負債"]),
+            "現金流": extract_number(text, ["營業活動"])
+        }
+
         rows.append(d)
 
     df = pd.DataFrame(rows)
 
-    # -----------------------
-    # 關鍵修正：避免空值炸圖
-    # -----------------------
+    # 防炸核心
     df = df.dropna(how="all", subset=["營收", "應收", "資產"])
 
     if df.empty:
-        st.error("PDF沒有解析到財務數據（請確認是否為掃描檔或格式不同）")
+        st.error("PDF沒有成功解析到財務數據（可能是掃描PDF或格式不同）")
         st.stop()
 
     df = calc(df)
@@ -156,9 +156,9 @@ if files:
 
     st.dataframe(df)
 
-    # -----------------------
-    # 圖表（保證有資料）
-    # -----------------------
+    # -------------------------
+    # 圖表（穩定版）
+    # -------------------------
     df = df.sort_values("年度")
 
     fig, ax = plt.subplots()
@@ -172,9 +172,9 @@ if files:
 
     st.pyplot(fig)
 
-    # -----------------------
-    # Word 報告
-    # -----------------------
+    # -------------------------
+    # Word報告
+    # -------------------------
     doc = Document()
     doc.add_heading("財報查核報告", 0)
 

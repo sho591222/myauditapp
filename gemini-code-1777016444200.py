@@ -11,185 +11,166 @@ import io
 # =========================
 
 st.set_page_config(layout="wide")
-
-st.title("玄武會計師事務所｜雙用途企業查核系統 v14")
-
-
-# =========================
-# BRAND HEADER
-# =========================
-
-firm_name = "玄武會計師事務所"
-
-
-st.sidebar.subheader("查核資訊")
-
-partner = st.sidebar.text_input("主辦會計師", "玄武主持會計師")
-report_date = st.sidebar.date_input("查核日期")
+st.title("玄武會計師事務所｜企業雙層財報分析系統 v15")
 
 
 # =========================
-# LOGIN SYSTEM
+# MODE SELECT
 # =========================
 
-USERS = {
-    "audit": {"pw": "1234", "role": "audit"},
-    "client": {"pw": "1234", "role": "company"}
-}
-
-if "login" not in st.session_state:
-    st.session_state.login = False
-
-
-st.sidebar.subheader("登入")
-
-user = st.sidebar.text_input("帳號")
-pw = st.sidebar.text_input("密碼", type="password")
-
-if st.sidebar.button("登入"):
-    if user in USERS and USERS[user]["pw"] == pw:
-        st.session_state.login = True
-        st.session_state.role = USERS[user]["role"]
-        st.success("登入成功")
-    else:
-        st.error("登入失敗")
-
-
-# =========================
-# DATABASE
-# =========================
-
-conn = sqlite3.connect("v14.db", check_same_thread=False)
-c = conn.cursor()
-
-c.execute("""
-CREATE TABLE IF NOT EXISTS data (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    company TEXT,
-    account TEXT,
-    value REAL,
-    created_at TEXT
+mode = st.sidebar.selectbox(
+    "使用模式",
+    ["公司內部分析模式", "會計師事務所模式", "玄武會計師事務所模式"]
 )
-""")
-
-conn.commit()
 
 
 # =========================
-# ROLE ENGINE（核心）
+# FIRM SETTINGS（鎖定邏輯）
 # =========================
 
-def mode():
+if mode == "玄武會計師事務所模式":
 
-    if st.session_state.role == "audit":
-        return "事務所模式"
-    return "公司模式"
+    firm_name = "玄武會計師事務所"
+    partner = "玄武主持會計師"
+    report_date = datetime.date.today()
+
+    st.sidebar.text_input("會計師名稱（鎖定）", partner, disabled=True)
+    st.sidebar.date_input("查核日期（鎖定）", report_date, disabled=True)
+
+else:
+
+    firm_name = st.sidebar.text_input("事務所名稱", "玄武會計師事務所")
+    partner = st.sidebar.text_input("會計師名稱", "玄武主持會計師")
+    report_date = st.sidebar.date_input("查核日期")
 
 
 # =========================
-# COMPANY MODE（禁止 audit 用語）
+# INPUT
 # =========================
 
-def company_analysis(value):
+company = st.text_input("公司名稱", "ABC股份有限公司")
+
+revenue = st.number_input("營收", 0)
+profit = st.number_input("淨利", 0)
+assets = st.number_input("資產總額", 0)
+liabilities = st.number_input("負債總額", 0)
+
+
+# =========================
+# FINANCIAL ANALYSIS CORE
+# =========================
+
+def ratios():
+
+    margin = profit / revenue if revenue else 0
+    leverage = liabilities / assets if assets else 0
+
+    return margin, leverage
+
+
+# =========================
+# COMPANY MODE
+# =========================
+
+def company_analysis(margin, leverage):
 
     result = []
 
-    if value < 1000000:
-        result.append("營運規模可持續優化")
+    if margin < 0.2:
+        result.append("建議改善獲利能力")
 
-    if value > 5000000:
-        result.append("建議檢視資本配置效率")
+    if leverage > 0.6:
+        result.append("財務槓桿偏高，建議調整資本結構")
 
     return result
 
 
 # =========================
-# AUDIT MODE（查核模式）
+# AUDIT MODE
 # =========================
 
-def audit_analysis(value):
+def audit_analysis(margin, leverage):
 
     result = []
 
-    if value > 1000000:
-        result.append("應收帳款增加需執行函證程序")
+    if margin < 0.2:
+        result.append("毛利率偏低，需評估收入認列合理性（ISA 240）")
 
-    if value > 5000000:
-        result.append("需進一步執行實質性查核程序")
+    if leverage > 0.6:
+        result.append("負債比例偏高，需執行持續經營評估（ISA 570）")
 
     return result
 
 
 # =========================
-# MAIN SYSTEM
+# XUANWU MODE（更細查核）
 # =========================
 
-if st.session_state.login:
+def xuanwu_analysis(margin, leverage):
 
-    st.subheader("目前模式：" + mode())
+    result = []
 
-    company = st.text_input("公司名稱", "ABC股份有限公司")
+    result.append("進階財報拆解分析啟動")
 
-    account = st.selectbox("科目", ["應收帳款", "存貨", "營收"])
+    if revenue > 10000000:
+        result.append("需進行收入分層測試（Revenue Cut-off Test）")
 
-    value = st.number_input("金額", 0)
+    if liabilities / assets > 0.7:
+        result.append("高負債結構風險，需壓力測試（Stress Test）")
 
-    if st.button("執行分析"):
+    if margin < 0.15:
+        result.append("盈餘品質偏低，需測試應計項目（Accrual Testing）")
 
-        # store data
-        c.execute("""
-            INSERT INTO data (company, account, value, created_at)
-            VALUES (?, ?, ?, ?)
-        """, (company, account, value, str(datetime.datetime.now())))
-
-        conn.commit()
-
-        st.subheader("分析結果")
-
-        if mode() == "公司模式":
-            st.write(company_analysis(value))
-        else:
-            st.write(audit_analysis(value))
+    return result
 
 
 # =========================
-# DATABASE VIEW
+# EXECUTE
 # =========================
 
-st.subheader("系統資料庫")
+if st.button("執行分析"):
 
-df = pd.read_sql_query("SELECT * FROM data", conn)
+    margin, leverage = ratios()
 
-st.dataframe(df)
+    st.subheader("分析結果")
+
+    if mode == "公司內部分析模式":
+        st.write(company_analysis(margin, leverage))
+
+    elif mode == "會計師事務所模式":
+        st.write(audit_analysis(margin, leverage))
+
+    else:
+        st.write(xuanwu_analysis(margin, leverage))
 
 
 # =========================
-# WORKING PAPER EXPORT
+# REPORT EXPORT
 # =========================
 
 if st.button("下載工作底稿"):
 
     doc = Document()
 
-    doc.add_heading("雙用途企業查核系統 v14", 0)
+    doc.add_heading("企業財報分析系統 v15", 0)
 
-    doc.add_paragraph("Engagement Information")
-    doc.add_paragraph("會計師事務所：" + firm_name)
-    doc.add_paragraph("主辦會計師：" + partner)
+    doc.add_paragraph("模式：" + mode)
+    doc.add_paragraph("公司：" + company)
+    doc.add_paragraph("事務所：" + firm_name)
+    doc.add_paragraph("會計師：" + partner)
     doc.add_paragraph("查核日期：" + str(report_date))
-    doc.add_paragraph("模式：" + mode())
 
-    doc.add_paragraph("資料")
+    margin, leverage = ratios()
 
-    for row in df.values:
-        doc.add_paragraph(str(row))
+    doc.add_paragraph(f"毛利率：{margin}")
+    doc.add_paragraph(f"槓桿比率：{leverage}")
 
     buffer = io.BytesIO()
     doc.save(buffer)
     buffer.seek(0)
 
     st.download_button(
-        "下載工作底稿",
+        "下載Word工作底稿",
         buffer,
-        file_name="玄武會計師事務所_v14.docx"
+        file_name="v15_report.docx"
     )

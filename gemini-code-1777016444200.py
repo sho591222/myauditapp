@@ -4,6 +4,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import pdfplumber
 from docx import Document
+from docx.shared import Inches
 import io
 
 
@@ -13,9 +14,19 @@ import io
 
 st.markdown("""
 # 🏢 玄武會計師事務所
-## AI 財務分析與查核系統 v57
+## AI 四大財務查核整合系統 v60
 ---
 """)
+
+
+# =====================================================
+# 🔐 登入角色（影響全部輸出）
+# =====================================================
+
+role = st.selectbox("選擇使用者類型", [
+    "公司使用者",
+    "會計師事務所"
+])
 
 
 # =====================================================
@@ -34,86 +45,122 @@ def parse_pdf(file):
 
 
 # =====================================================
-# 🧠 財務分析（核心）
+# 🧠 核心分析（統一資料來源）
 # =====================================================
 
-def analyze(text):
+def analyze(text, role):
 
-    result = []
-    notes = []
+    core = []
+    suggestions = []
 
-    # 四大報表分析
+    # =========================
+    # 四大報表解析
+    # =========================
+
     if "資產" in text:
-        result.append("資產負債表：需注意資產品質與流動性")
+        core.append(("資產負債表", "流動性與資產品質分析", 70))
 
     if "負債" in text:
-        result.append("負債結構：短期償債壓力分析")
+        core.append(("負債結構", "償債能力分析", 60))
 
     if "現金流量" in text:
-        result.append("現金流量表：營運現金是否穩定")
+        core.append(("現金流量", "營運現金穩定性", 55))
 
     if "損益" in text:
-        result.append("損益表：收入與費用匹配性")
+        core.append(("損益表", "收入與費用匹配", 65))
 
-    # 財報風險
+
+    # =========================
+    # 風險分析
+    # =========================
+
     if "虛增" in text:
-        result.append("財報不實風險")
-        notes.append("建議查：收入 / 應收帳款")
+        core.append(("財報不實", "收入可能虛增", 90))
+        suggestions.append("應查：收入 / 應收帳款")
 
     if "資金流向" in text:
-        result.append("掏空風險")
-        notes.append("建議查：現金 / 關係人交易")
+        core.append(("掏空風險", "資金異常流動", 85))
+        suggestions.append("應查：現金 / 關係人交易")
 
     if "偽造" in text:
-        result.append("舞弊風險")
-        notes.append("建議查：憑證 / 銀行對帳單")
+        core.append(("舞弊風險", "文件異常", 95))
+        suggestions.append("應查：憑證 / 銀行對帳")
 
-    return result, notes
+
+    # =========================
+    # 事務所模式加強（你要的）
+    # =========================
+
+    if role == "會計師事務所":
+
+        suggestions += [
+            "查核重點：收入認列",
+            "查核重點：應收帳款",
+            "查核重點：存貨跌價",
+            "查核重點：關係人交易",
+            "查核重點：現金流量合理性"
+        ]
+
+    return core, suggestions
 
 
 # =====================================================
-# 📊 圖表
+# 📊 圖表（頁面顯示 + Word用）
 # =====================================================
 
-def chart():
+def make_chart(core):
 
-    df = pd.DataFrame({
-        "年度": ["2022", "2023", "2024"],
-        "營收": [100, 120, 90],
-        "獲利": [10, 15, -5]
-    })
+    labels = [c[0] for c in core]
+    values = [c[2] for c in core]
 
     fig, ax = plt.subplots()
 
-    ax.plot(df["年度"], df["營收"], label="營收")
-    ax.plot(df["年度"], df["獲利"], label="獲利")
+    ax.bar(labels, values)
 
-    ax.legend()
+    ax.set_title("財務風險分析圖")
 
     return fig
 
 
 # =====================================================
-# 📄 Word報告（你要的分析報告）
+# 📄 Word（含圖表 + 詳細說明）
 # =====================================================
 
-def make_word(result, notes):
+def make_word(core, suggestions, fig):
 
     doc = Document()
 
-    doc.add_heading("財務分析報告", 0)
+    doc.add_heading("ISA 700 財務查核報告", 0)
 
-    doc.add_paragraph("本報告基於AI分析財務報表產出")
+    # =========================
+    # 分析內容
+    # =========================
 
-    doc.add_heading("分析結果", level=1)
+    doc.add_heading("財務報表分析", level=1)
 
-    for r in result:
-        doc.add_paragraph(r)
+    for c in core:
+        doc.add_paragraph(
+            f"{c[0]}：{c[1]}（風險值 {c[2]}）"
+        )
+
+    # =========================
+    # 查核建議
+    # =========================
 
     doc.add_heading("查核建議", level=1)
 
-    for n in notes:
-        doc.add_paragraph(n)
+    for s in suggestions:
+        doc.add_paragraph(s)
+
+    # =========================
+    # 圖表插入（重點）
+    # =========================
+
+    image_path = "chart.png"
+    fig.savefig(image_path)
+
+    doc.add_heading("風險圖表", level=1)
+    doc.add_picture(image_path, width=Inches(5))
 
     buffer = io.BytesIO()
     doc.save(buffer)
@@ -123,19 +170,20 @@ def make_word(result, notes):
 
 
 # =====================================================
-# 📊 Excel報告（數據版）
+# 📊 Excel（完整數據）
 # =====================================================
 
-def make_excel(result, notes):
+def make_excel(core, suggestions):
 
     output = io.BytesIO()
 
-    df1 = pd.DataFrame(result, columns=["分析結果"])
-    df2 = pd.DataFrame(notes, columns=["查核建議"])
+    df1 = pd.DataFrame(core, columns=["項目", "說明", "風險值"])
+    df2 = pd.DataFrame(suggestions, columns=["查核建議"])
 
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        df1.to_excel(writer, sheet_name="分析")
-        df2.to_excel(writer, sheet_name="查核")
+
+        df1.to_excel(writer, sheet_name="財務分析")
+        df2.to_excel(writer, sheet_name="查核建議")
 
     output.seek(0)
 
@@ -143,7 +191,7 @@ def make_excel(result, notes):
 
 
 # =====================================================
-# 🖥️ UI
+# 🖥️ UI（結果頁面）
 # =====================================================
 
 file = st.file_uploader("請上傳PDF財報")
@@ -152,45 +200,47 @@ if file:
 
     text = parse_pdf(file)
 
-    result, notes = analyze(text)
+    core, suggestions = analyze(text, role)
 
 
     # =================================================
-    # 📌 分析結果
+    # 📊 頁面分析結果（你要的）
     # =================================================
 
     st.subheader("財務分析結果")
 
-    for r in result:
-        st.write(r)
+    for c in core:
+        st.write(f"{c[0]} - {c[1]}（風險值 {c[2]}）")
 
 
     # =================================================
     # 📌 查核建議
     # =================================================
 
-    st.subheader("查核建議")
+    st.subheader("查核 / 異常建議")
 
-    for n in notes:
-        st.write(n)
-
-
-    # =================================================
-    # 📊 圖表
-    # =================================================
-
-    st.subheader("財務圖表")
-    st.pyplot(chart())
+    for s in suggestions:
+        st.write(s)
 
 
     # =================================================
-    # 📄 Word下載
+    # 📊 圖表（頁面顯示）
+    # =================================================
+
+    fig = make_chart(core)
+
+    st.subheader("財務風險圖表")
+    st.pyplot(fig)
+
+
+    # =================================================
+    # 📄 Word下載（含圖表 + 詳細分析）
     # =================================================
 
     st.download_button(
-        "下載 Word 報告",
-        make_word(result, notes),
-        file_name="財務分析報告.docx"
+        "下載 Word 查核報告（含圖表）",
+        make_word(core, suggestions, fig),
+        file_name="ISA700_full_report.docx"
     )
 
 
@@ -199,7 +249,7 @@ if file:
     # =================================================
 
     st.download_button(
-        "下載 Excel 報告",
-        make_excel(result, notes),
-        file_name="財務分析.xlsx"
+        "下載 Excel 財務分析",
+        make_excel(core, suggestions),
+        file_name="financial_analysis.xlsx"
     )

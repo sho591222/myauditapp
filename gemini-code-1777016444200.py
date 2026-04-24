@@ -4,7 +4,6 @@ import hashlib
 import pandas as pd
 import pdfplumber
 import matplotlib.pyplot as plt
-import networkx as nx
 import io
 import re
 from docx import Document
@@ -52,7 +51,7 @@ def login_user(u, p):
 
 
 # =========================
-# SESSION
+# SESSION INIT
 # =========================
 
 if "login" not in st.session_state:
@@ -61,13 +60,17 @@ if "login" not in st.session_state:
 
 
 # =========================
-# UI
+# UI HEADER
 # =========================
 
-st.title("玄武會計師事務所｜AI 財報查核系統 v26")
+st.title("玄武會計師事務所｜AI 查核系統 v27")
 
 
-page = st.sidebar.radio("系統入口", ["註冊", "登入", "主系統"])
+# =========================
+# AUTH BLOCK（唯一入口）
+# =========================
+
+page = st.sidebar.radio("入口", ["登入", "註冊"])
 
 
 # =========================
@@ -76,7 +79,7 @@ page = st.sidebar.radio("系統入口", ["註冊", "登入", "主系統"])
 
 if page == "註冊":
 
-    st.subheader("建立帳號")
+    st.subheader("註冊")
 
     u = st.text_input("帳號")
     p = st.text_input("密碼", type="password")
@@ -115,15 +118,13 @@ if page == "登入":
 
 
 # =========================
-# MAIN SYSTEM
+# 🚨 MAIN SYSTEM (ONLY AFTER LOGIN)
 # =========================
 
-if page == "主系統":
+if st.session_state.login:
 
-    if not st.session_state.login:
-        st.warning("請先登入")
-        st.stop()
 
+    st.divider()
 
     st.subheader("財報分析主系統")
 
@@ -175,7 +176,7 @@ if page == "主系統":
 
 
     # =========================
-    # ANALYSIS CORE
+    # ANALYSIS ENGINE
     # =========================
 
     if data:
@@ -184,16 +185,8 @@ if page == "主系統":
 
         st.dataframe(df)
 
-        df["margin"] = df["profit"] / df["revenue"]
-        df["leverage"] = df["liabilities"] / df["assets"]
 
-
-        # =========================
-        # CHART
-        # =========================
-
-        st.subheader("財務趨勢圖")
-
+        # chart
         fig, ax = plt.subplots()
 
         ax.plot(df["year"], df["revenue"], label="營收")
@@ -204,46 +197,13 @@ if page == "主系統":
         st.pyplot(fig)
 
 
-        # =========================
-        # FRAUD SCORE
-        # =========================
-
-        st.subheader("財報造假風險（0-100）")
-
-        score = 0
-
-        if df["profit"].mean() < 0:
-            score += 30
-
-        if df["leverage"].mean() > 0.7:
-            score += 25
-
-        if df["margin"].mean() < 0.1:
-            score += 20
-
-        score = min(score, 100)
-
-        st.write("Risk Score：", score)
+        # ratio
+        df["margin"] = df["profit"] / df["revenue"]
+        df["leverage"] = df["liabilities"] / df["assets"]
 
 
         # =========================
-        # ISA 700 OPINION
-        # =========================
-
-        if score < 30:
-            opinion = "無保留意見"
-        elif score < 60:
-            opinion = "保留意見"
-        elif score < 85:
-            opinion = "否定意見風險"
-        else:
-            opinion = "無法表示意見"
-
-        st.write("ISA 700：", opinion)
-
-
-        # =========================
-        # COMPANY / AUDIT MODE
+        # MODE LOGIC
         # =========================
 
         st.subheader("分析建議")
@@ -262,61 +222,59 @@ if page == "主系統":
 
             st.write([
                 "獲利能力分析",
-                "資本效率分析",
+                "成本結構分析",
                 "財務槓桿分析"
             ])
 
 
         # =========================
-        # STOCK STRUCTURE (股譜)
+        # FRAUD SCORE
         # =========================
 
-        st.subheader("股譜分析")
+        score = 0
 
-        if df["assets"].mean() > df["revenue"].mean() * 2:
-            st.write("資產效率異常")
+        if df["profit"].mean() < 0:
+            score += 30
 
-        if df["profit"].mean() / df["assets"].mean() < 0.05:
-            st.write("資本效率偏低")
+        if df["leverage"].mean() > 0.7:
+            score += 25
 
+        if df["margin"].mean() < 0.1:
+            score += 20
 
-        # =========================
-        # FRAUD ANALYSIS
-        # =========================
+        score = min(score, 100)
 
-        st.subheader("掏空分析")
-
-        if df["profit"].mean() < 0 and df["assets"].mean() > 0:
-            st.write("資產增加但虧損（異常）")
-
-        if df["liabilities"].mean() > df["assets"].mean() * 0.8:
-            st.write("高負債風險")
+        st.subheader("風險分數")
+        st.write(score)
 
 
         # =========================
-        # QUALITY ANALYSIS
+        # ISA 700
         # =========================
 
-        st.subheader("財報品質")
+        if score < 30:
+            st.write("ISA 700：無保留意見")
 
-        if df["profit"].mean() > df["revenue"].mean() * 0.3:
-            st.write("利潤異常偏高")
+        elif score < 60:
+            st.write("ISA 700：保留意見")
 
-        if df["assets"].mean() > df["revenue"].mean() * 3:
-            st.write("資產過重需減損")
+        elif score < 85:
+            st.write("ISA 700：否定意見風險")
+
+        else:
+            st.write("ISA 700：無法表示意見")
 
 
         # =========================
         # REPORT EXPORT
         # =========================
 
-        if st.button("產出查核報告"):
+        if st.button("產出報告"):
 
             doc = Document()
-            doc.add_heading("AI 查核報告 v26", 0)
+            doc.add_heading("AI 查核報告 v27", 0)
 
             doc.add_paragraph(f"Risk Score: {score}")
-            doc.add_paragraph(f"ISA 700: {opinion}")
 
             buffer = io.BytesIO()
             doc.save(buffer)
@@ -325,5 +283,9 @@ if page == "主系統":
             st.download_button(
                 "下載報告",
                 buffer,
-                file_name="audit_v26.docx"
+                file_name="audit_v27.docx"
             )
+
+else:
+
+    st.warning("請先登入才能使用財報分析系統")

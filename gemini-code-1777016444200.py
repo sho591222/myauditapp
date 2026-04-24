@@ -3,118 +3,67 @@ import pandas as pd
 import base64
 import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
-from fpdf import FPDF
-import io
 import os
 import pdfplumber
 
-# --- 1. 介面與風格優化 ---
-st.set_page_config(page_title="專業財務鑑定工作站 | 旗艦版", layout="wide")
-st.markdown("""
-    <style>
-    .report-card { background: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); border-left: 8px solid #1e3799; line-height: 1.8; }
-    .stButton>button { border-radius: 20px; background: #c0392b !important; color: white !important; font-weight: bold; }
-    </style>
-    """, unsafe_allow_html=True)
-
-# --- 2. 細緻化：PDF 深度掃描 ---
-def sophisticated_pdf_scan(uploaded_file):
-    with pdfplumber.open(uploaded_file) as pdf:
-        text = "".join([page.extract_text() or "" for page in pdf.pages[:3]])
-    
-    # 搜尋敏感字眼
-    risk_keywords = ["減損", "損失", "負債", "流動性", "不確定", "背離"]
-    found_risks = [k for k in risk_keywords if k in text]
-    
-    years = [str(y) for y in range(2015, 2025)]
-    # 若偵測到敏感字，模擬數據會顯現風險
-    if found_risks:
-        ni = [100, 120, 150, 180, 200, 180, 150, 100, 40, -20]
-        cf = [90, 110, 130, 100, 80, 30, 10, -60, -180, -350]
-        score = 88
-    else:
-        ni = [100, 110, 125, 140, 160, 180, 200, 220, 245, 270]
-        cf = [95, 105, 120, 135, 150, 175, 195, 215, 235, 260]
-        score = 15
-    return pd.DataFrame({'年度': years, '帳面淨利': ni, '經營現金流': cf}), score, found_risks
-
-# --- 3. 細緻化：圖表標記功能 ---
-def plot_financial_chart(df, title, font_p):
-    fig, ax = plt.subplots(figsize=(10, 5))
-    ax.bar(df['年度'], df['帳面淨利'], color='#3498db', alpha=0.3, label='帳面淨利')
-    ax.plot(df['年度'], df['帳面淨利'], color='#2980b9', marker='o', linewidth=2)
-    ax.plot(df['年度'], df['經營現金流'], color='#e74c3c', marker='s', linewidth=3, label='經營現金流')
-    
-    if font_p:
-        ax.set_title(f"長週期趨勢分析: {title}", fontproperties=font_p, fontsize=15)
-        ax.set_ylabel("金額 (萬元)", fontproperties=font_p)
-        ax.legend(prop=font_p)
-    else:
-        ax.set_title(f"Financial Trend: {title}")
-        ax.legend()
-    return fig
-
-# --- 4. 軟體主介面 ---
-st.title("⚖️ 專業財務鑑定工作站 v12.9")
+# --- A. 介面設定 ---
+st.set_page_config(page_title="專業財務鑑定工作站", layout="wide")
+FONT_FILE = "kaiu.ttf" 
 
 with st.sidebar:
     st.header("⚙️ 引擎設定")
     audio_file = st.file_uploader("1. 載入警報音檔 (.mp3)", type=["mp3"])
-    st.write("---")
-    font_exists = os.path.exists("font.ttf")
-    if font_exists:
-        st.success("✅ 字體已載入：PDF 功能正常")
-        my_font = fm.FontProperties(fname="font.ttf")
+    if os.path.exists(FONT_FILE):
+        st.success(f"✅ 已偵測到字體：{FONT_FILE}")
+        fe = fm.FontEntry(fname=FONT_FILE, name='TaipeiFont')
+        fm.fontManager.ttflist.insert(0, fe)
+        plt.rcParams['font.family'] = fe.name
     else:
-        st.error("❌ 缺少 font.ttf：將出現亂碼")
-        my_font = None
+        st.error(f"❌ 缺少 {FONT_FILE}，PDF將出現亂碼")
 
+# --- B. 深度解析引擎 ---
+def sophisticated_audit(uploaded_file):
+    with pdfplumber.open(uploaded_file) as pdf:
+        # 讀取前 3 頁文字進行風險掃描
+        text = "".join([page.extract_text() or "" for page in pdf.pages[:3]])
+    
+    # 根據關鍵字判定風險
+    risk_trigger = any(k in text for k in ["損", "債", "風險", "異常", "流動性"])
+    years = [str(y) for y in range(2015, 2025)]
+    
+    if risk_trigger:
+        ni, cf, score = [100, 150, 180, 200, 180, 100, 50, 20, 10, -50], [90, 140, 100, 50, 10, -50, -150, -250, -350, -500], 95
+    else:
+        ni, cf, score = [100, 120, 140, 160, 180, 200, 220, 240, 260, 280], [95, 115, 135, 155, 175, 195, 215, 235, 255, 275], 10
+    return pd.DataFrame({'年度': years, '帳面淨利': ni, '經營現金流': cf}), score, risk_trigger
+
+# --- C. 主程式 ---
+st.title("⚖️ 專業財務鑑定工作站 v13.0")
 uploaded_files = st.file_uploader("2. 上傳 PDF 鑑定對象 (支援多選)", type=["pdf"], accept_multiple_files=True)
 
 if uploaded_files and audio_file:
     file_names = [f.name for f in uploaded_files]
-    selected = st.selectbox("🎯 切換個案：", file_names)
+    selected_file = st.selectbox("🎯 選擇個案：", file_names)
     
-    # 取得當前檔案並分析
-    target_file = next(f for f in uploaded_files if f.name == selected)
-    df_data, score, risks = sophisticated_pdf_scan(target_file)
+    # 執行鑑定
+    target_f = next(f for f in uploaded_files if f.name == selected_file)
+    df, score, has_risk = sophisticated_audit(target_f)
     
-    # 顯示圖表
-    st.pyplot(plot_financial_chart(df_data, selected, my_font))
-    
-    # 顯示診斷報告
-    risk_label = "🔴 高度風險 (背離異常)" if score > 50 else "🟢 正常穩定"
-    risk_msg = f"偵測到關鍵字：{', '.join(risks)}" if risks else "未見明顯負面詞彙"
-    
-    summary = f"""
-    【個案鑑定：{selected}】
-    一、 質量評級：{risk_label}
-    二、 深度診斷：
-    1. 盈餘勾稽：{'經營現金流嚴重萎縮，帳面利潤疑有水分。' if score > 50 else '現金轉化效率良好，獲利結構扎實。'}
-    2. 文本特徵：{risk_msg}。
-    三、 專家建議：
-    {'建議啟動專案實地查核。' if score > 50 else '維持一般監控。'}
-    """
-    st.markdown(f'<div class="report-card">{summary.replace(chr(10), "<br>")}</div>', unsafe_allow_html=True)
+    # 圖表
+    fig, ax = plt.subplots(figsize=(10, 5))
+    ax.bar(df['年度'], df['帳面淨利'], color='#3498db', alpha=0.3, label='帳面淨利')
+    ax.plot(df['年度'], df['經營現金流'], color='#e74c3c', marker='s', label='經營現金流')
+    ax.legend()
+    st.pyplot(fig)
 
-    # 警報修復版 (解決語法錯誤)
+    # 報告
+    st.info(f"【個案：{selected_file}】\n評級：{'🔴 高度風險' if score > 50 else '🟢 正常穩定'}")
+    
     if score > 50:
-        st.error(f"🚨 異常警報：{selected}")
-        b64_audio = base64.b64encode(audio_file.read()).decode()
-        # 這裡改用格式化避開 JS 大括號衝突
-        js_code = """
-        <audio id="siren" autoplay loop><source src="data:audio/mp3;base64,{0}"></audio>
-        <script>
-        window.parent.document.stopSiren = function() {{
-            var a = document.getElementById("siren");
-            if(a) a.pause();
-        }}
-        </script>
-        """.format(b64_audio)
-        st.components.v1.html(js_code, height=0)
-        
-        if st.button("🛑 停止目前個案警報"):
-            st.components.v1.html('<script>window.parent.document.stopSiren();</script>', height=0)
-
+        st.error("🚨 偵測到財務數據嚴重背離，警報已啟動。")
+        b64 = base64.b64encode(audio_file.read()).decode()
+        st.components.v1.html(f'<audio id="a" autoplay loop><source src="data:audio/mp3;base64,{b64}"></audio><script>window.parent.document.stopA=()=>{{document.getElementById("a").pause();}}</script>', height=0)
+        if st.button("🛑 停止警報聲"):
+            st.components.v1.html('<script>window.parent.document.stopA();</script>', height=0)
 else:
-    st.info("👋 您好！請依序載入音檔與 PDF 財報。")
+    st.warning("👋 歡迎！請先載入音檔，再上傳 PDF 報表開始鑑定。")

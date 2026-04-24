@@ -6,12 +6,6 @@ import matplotlib.pyplot as plt
 st.set_page_config(page_title="玄武會計師事務所", layout="wide")
 
 # =====================================================
-# 1. 狀態管理
-# =====================================================
-if "entered" not in st.session_state:
-    st.session_state.entered = False
-
-# =====================================================
 # 2. 登入入口 (已刪除 Email, 密碼, 選單)
 # =====================================================
 if not st.session_state.entered:

@@ -19,8 +19,8 @@ import faiss
 # =====================================================
 
 st.markdown("""
-# 🏢 玄武會計師事務所
-## v70 Production Enterprise Audit System（Full Stack）
+# 玄武會計師事務所
+##財報分析及審計系統
 ---
 """)
 

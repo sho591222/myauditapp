@@ -30,3 +30,10 @@ pandas
 numpy
 pdfplumber
 python-docx
+streamlit
+pandas
+numpy
+pdfplumber
+matplotlib
+python-docx
+requests

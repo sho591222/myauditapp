@@ -27,12 +27,12 @@ plt.rcParams['font.family'] = fe.name
 plt.rcParams['axes.unicode_minus'] = False
 
 # --- 2. 介面呈現 ---
-st.title("⚖️ 專業財務鑑定工作站 (自動修復版)")
+st.title(" 專業財務鑑定工作站 ")
 
 with st.sidebar:
-    st.header("⚙️ 設定")
+    st.header(" 設定")
     # 修正這裡的拼字：是 .success 不是 .succes
-    st.success("✅ 中文字體已自動修復")
+    st.success(" 中文字體已自動修復")
     audio_file = st.file_uploader("1. 載入警報音檔 (.mp3)", type=["mp3"])
 
 uploaded_pdf = st.file_uploader("2. 上傳 PDF 報表", type=["pdf"])

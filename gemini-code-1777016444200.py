@@ -10,10 +10,12 @@ import requests
 import matplotlib.font_manager as fm
 
 # =========================
-# Google Sheets
+# Google Sheets + Drive
 # =========================
 import gspread
 from google.oauth2.service_account import Credentials
+from pydrive2.auth import GoogleAuth
+from pydrive2.drive import GoogleDrive
 
 
 # =========================
@@ -45,7 +47,7 @@ if font_path:
 
 
 # =========================
-# Google Sheets 連線
+# Google Sheets
 # =========================
 
 def connect_sheet():
@@ -64,7 +66,7 @@ def connect_sheet():
     return sheet
 
 
-def save_to_sheet(sheet, company, df, insights):
+def save_sheet(sheet, company, df, insights):
 
     for _, r in df.iterrows():
         sheet.append_row([
@@ -82,11 +84,30 @@ def save_to_sheet(sheet, company, df, insights):
 
 
 # =========================
+# Google Drive
+# =========================
+
+def upload_drive(file_buffer, filename):
+
+    gauth = GoogleAuth()
+    gauth.LoadServiceConfigFile("service_account.json")
+    gauth.ServiceAuth()
+
+    drive = GoogleDrive(gauth)
+
+    file = drive.CreateFile({'title': filename})
+    file.SetContentString(file_buffer.getvalue().decode("latin1"))
+    file.Upload()
+
+    return file['id']
+
+
+# =========================
 # UI
 # =========================
 
 st.set_page_config(layout="wide")
-st.title("四大會計師查核分析系統（Cloud Audit System）")
+st.title("四大會計師雲端查核系統（Audit Cloud System）")
 
 with st.sidebar:
     company = st.text_input("公司名稱", "XX股份有限公司")
@@ -122,10 +143,11 @@ def parse_pdf(file):
 
 
 # =========================
-# 財務分析（DuPont）
+# 財務模型
 # =========================
 
-def financial_engine(d):
+def financial(d):
+
     revenue = d["revenue"]
     ni = d["net_income"]
 
@@ -134,15 +156,11 @@ def financial_engine(d):
 
     roe = (ni / revenue) * (revenue / assets) * (assets / equity) if revenue else 0
 
-    return {
-        "ROE": roe,
-        "margin": ni / revenue if revenue else 0,
-        "turnover": revenue / assets if assets else 0
-    }
+    return {"roe": roe}
 
 
 # =========================
-# 查核引擎
+# 查核模型
 # =========================
 
 def forensic(curr, prev):
@@ -151,22 +169,22 @@ def forensic(curr, prev):
 
     if prev:
         if curr["ar"] > prev["ar"] * 1.3:
-            flags.append("應收帳款異常增加（可能提前認列收入）")
+            flags.append("應收帳款異常增加")
 
         if curr["inventory"] > prev["inventory"] * 1.3:
-            flags.append("存貨異常增加（可能滯銷或資產虛增）")
+            flags.append("存貨異常增加")
 
         if curr["cash"] < curr["net_income"]:
-            flags.append("現金流弱於盈餘（盈餘品質疑慮）")
+            flags.append("現金流弱於盈餘")
 
     if not flags:
-        flags.append("未偵測重大異常")
+        flags.append("未發現重大異常")
 
     return flags
 
 
 # =========================
-# Word 報告
+# Word report
 # =========================
 
 def build_report(company, df, insights):
@@ -177,8 +195,6 @@ def build_report(company, df, insights):
     doc.add_paragraph(f"公司：{company}")
     doc.add_paragraph(f"事務所：{firm}")
     doc.add_paragraph(f"會計師：{auditor}")
-
-    doc.add_heading("財務與查核結果", level=1)
 
     for _, r in df.iterrows():
         doc.add_paragraph(f"{r['year']} | ROE:{r['roe']:.2f} | {r['flags']}")
@@ -207,7 +223,7 @@ if files:
     for f in sorted(files, key=lambda x: x.name):
 
         data = parse_pdf(f)
-        fin = financial_engine(data)
+        fin = financial(data)
         flags = forensic(data, prev)
 
         results.append({
@@ -215,7 +231,7 @@ if files:
             "cash": data["cash"],
             "ar": data["ar"],
             "inventory": data["inventory"],
-            "roe": fin["ROE"],
+            "roe": fin["roe"],
             "flags": ", ".join(flags)
         })
 
@@ -228,7 +244,7 @@ if files:
     # Dashboard
     # =========================
 
-    st.subheader(f"{company} 財務查核分析")
+    st.subheader("財務分析")
 
     col1, col2 = st.columns(2)
 
@@ -237,30 +253,24 @@ if files:
         ax.plot(df["year"], df["cash"], label="現金")
         ax.plot(df["year"], df["ar"], label="應收")
         ax.plot(df["year"], df["inventory"], label="存貨")
-        ax.set_title("資產結構趨勢")
         ax.legend()
         st.pyplot(fig)
 
     with col2:
         fig2, ax2 = plt.subplots()
         ax2.plot(df["year"], df["roe"], marker="o", color="red")
-        ax2.set_title("ROE 趨勢")
         st.pyplot(fig2)
-
-    # =========================
-    # 查核發現
-    # =========================
 
     st.subheader("查核發現")
 
     for i in insights:
         st.write("•", i)
 
-    st.subheader("詳細資料")
+    st.subheader("明細")
     st.dataframe(df)
 
     # =========================
-    # Word 報告
+    # Word export
     # =========================
 
     report = build_report(company, df, insights)
@@ -268,19 +278,29 @@ if files:
     st.sidebar.download_button(
         "下載查核報告",
         report,
-        file_name=f"{company}_audit_report.docx"
+        file_name=f"{company}_audit.docx"
     )
 
     # =========================
-    # ☁️ 存到 Google Sheets
+    # ☁️ Google Sheets
     # =========================
 
-    if st.button("存到雲端（Google Sheets）"):
+    if st.button("存入 Google Sheets"):
 
         sheet = connect_sheet()
-        save_to_sheet(sheet, company, df, insights)
+        save_sheet(sheet, company, df, insights)
 
-        st.success("已成功寫入 Google Sheets Audit Log")
+        st.success("已寫入雲端 Audit Log")
+
+    # =========================
+    # ☁️ Google Drive
+    # =========================
+
+    if st.button("上傳 Word 到 Google Drive"):
+
+        file_id = upload_drive(report, f"{company}_audit.docx")
+
+        st.success(f"已上傳 Google Drive：{file_id}")
 
 else:
-    st.info("請上傳 PDF 財報開始分析")
+    st.info("請上傳 PDF 財報")

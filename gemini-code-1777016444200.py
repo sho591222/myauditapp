@@ -8,77 +8,74 @@ import io
 
 
 # =====================================================
-#  玄武會計師事務所（保留原頁面）
+# 🏢 系統標題
 # =====================================================
 
 st.markdown("""
-#  玄武會計師事務所
-## 雲端AI財務查核系統 v54
+# 🏢 玄武會計師事務所
+## AI 財務分析與查核系統 v57
 ---
 """)
 
 
 # =====================================================
-#  PDF / Word / Excel（全部整合，不拆module）
+# 📄 PDF解析
 # =====================================================
 
-def parse_pdf(files):
+def parse_pdf(file):
+
     text = ""
-    for f in files:
-        with pdfplumber.open(f) as pdf:
-            for p in pdf.pages:
-                text += p.extract_text() or ""
+
+    with pdfplumber.open(file) as pdf:
+        for p in pdf.pages:
+            text += p.extract_text() or ""
+
     return text
 
 
-def parse_word(files):
-    text = ""
-    for f in files:
-        doc = Document(f)
-        for p in doc.paragraphs:
-            text += p.text + "\n"
-    return text
-
-
-def parse_excel(files):
-    dfs = []
-    for f in files:
-        dfs.append(pd.read_excel(f))
-    return pd.concat(dfs) if dfs else None
-
-
 # =====================================================
-#  財務分析（保留你所有需求）
+# 🧠 財務分析（核心）
 # =====================================================
 
-def audit_engine(text, df):
+def analyze(text):
 
-    issues = []
+    result = []
+    notes = []
 
+    # 四大報表分析
+    if "資產" in text:
+        result.append("資產負債表：需注意資產品質與流動性")
+
+    if "負債" in text:
+        result.append("負債結構：短期償債壓力分析")
+
+    if "現金流量" in text:
+        result.append("現金流量表：營運現金是否穩定")
+
+    if "損益" in text:
+        result.append("損益表：收入與費用匹配性")
+
+    # 財報風險
     if "虛增" in text:
-        issues.append(("財報不實", "可能收入虛增"))
+        result.append("財報不實風險")
+        notes.append("建議查：收入 / 應收帳款")
 
     if "資金流向" in text:
-        issues.append(("掏空風險", "資金異常移轉"))
+        result.append("掏空風險")
+        notes.append("建議查：現金 / 關係人交易")
 
     if "偽造" in text:
-        issues.append(("舞弊風險", "文件異常"))
+        result.append("舞弊風險")
+        notes.append("建議查：憑證 / 銀行對帳單")
 
-    if "幣安" in text:
-        issues.append(("加密資產", "交易風險"))
-
-    if df is not None and "營收" in df.columns:
-        if df["營收"].iloc[-1] < df["營收"].iloc[0]:
-            issues.append(("營收下降", "趨勢惡化"))
-
-    return issues
+    return result, notes
 
 
 # =====================================================
-#  圖表（保留）
+# 📊 圖表
 # =====================================================
 
-def make_chart():
+def chart():
 
     df = pd.DataFrame({
         "年度": ["2022", "2023", "2024"],
@@ -97,19 +94,26 @@ def make_chart():
 
 
 # =====================================================
-# 📄 Word報告（ISA 700）
+# 📄 Word報告（你要的分析報告）
 # =====================================================
 
-def generate_word(issues):
+def make_word(result, notes):
 
     doc = Document()
 
-    doc.add_heading("ISA 700 財務查核報告", 0)
+    doc.add_heading("財務分析報告", 0)
 
-    doc.add_paragraph("本報告由AI系統生成")
+    doc.add_paragraph("本報告基於AI分析財務報表產出")
 
-    for i in issues:
-        doc.add_paragraph(f"- {i[0]}：{i[1]}")
+    doc.add_heading("分析結果", level=1)
+
+    for r in result:
+        doc.add_paragraph(r)
+
+    doc.add_heading("查核建議", level=1)
+
+    for n in notes:
+        doc.add_paragraph(n)
 
     buffer = io.BytesIO()
     doc.save(buffer)
@@ -119,80 +123,83 @@ def generate_word(issues):
 
 
 # =====================================================
-# 📊 Excel報告
+# 📊 Excel報告（數據版）
 # =====================================================
 
-def generate_excel(df, issues):
+def make_excel(result, notes):
 
     output = io.BytesIO()
 
-    writer = pd.ExcelWriter(output, engine="openpyxl")
+    df1 = pd.DataFrame(result, columns=["分析結果"])
+    df2 = pd.DataFrame(notes, columns=["查核建議"])
 
-    if df is not None:
-        df.to_excel(writer, sheet_name="財務數據")
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        df1.to_excel(writer, sheet_name="分析")
+        df2.to_excel(writer, sheet_name="查核")
 
-    pd.DataFrame(issues, columns=["類別", "說明"]).to_excel(
-        writer,
-        sheet_name="查核結果"
-    )
-
-    writer.close()
     output.seek(0)
 
     return output
 
 
 # =====================================================
-# 🖥️ UI（完全保留你原本頁面風格）
+# 🖥️ UI
 # =====================================================
 
-st.title("四大AI財務審計系統 v54")
+file = st.file_uploader("請上傳PDF財報")
 
-pdf_files = st.file_uploader("PDF（可多選）", accept_multiple_files=True)
-word_files = st.file_uploader("Word（可多選）", accept_multiple_files=True)
-excel_files = st.file_uploader("Excel（可多選）", accept_multiple_files=True)
+if file:
 
+    text = parse_pdf(file)
 
-text = ""
-df = None
-
-if pdf_files:
-    text += parse_pdf(pdf_files)
-
-if word_files:
-    text += parse_word(word_files)
-
-if excel_files:
-    df = parse_excel(excel_files)
+    result, notes = analyze(text)
 
 
-# =====================================================
-# 📊 分析核心
-# =====================================================
+    # =================================================
+    # 📌 分析結果
+    # =================================================
 
-if pdf_files or word_files or excel_files:
+    st.subheader("財務分析結果")
 
-    issues = audit_engine(text, df)
+    for r in result:
+        st.write(r)
 
-    st.subheader("查核結果")
 
-    for i in issues:
-        st.write(i)
+    # =================================================
+    # 📌 查核建議
+    # =================================================
+
+    st.subheader("查核建議")
+
+    for n in notes:
+        st.write(n)
+
+
+    # =================================================
+    # 📊 圖表
+    # =================================================
 
     st.subheader("財務圖表")
-    st.pyplot(make_chart())
+    st.pyplot(chart())
 
 
-    st.subheader("Word報告下載")
+    # =================================================
+    # 📄 Word下載
+    # =================================================
+
     st.download_button(
-        "下載Word",
-        generate_word(issues),
-        file_name="ISA700.docx"
+        "下載 Word 報告",
+        make_word(result, notes),
+        file_name="財務分析報告.docx"
     )
 
-    st.subheader("Excel報告下載")
+
+    # =================================================
+    # 📊 Excel下載
+    # =================================================
+
     st.download_button(
-        "下載Excel",
-        generate_excel(df, issues),
-        file_name="financial.xlsx"
+        "下載 Excel 報告",
+        make_excel(result, notes),
+        file_name="財務分析.xlsx"
     )

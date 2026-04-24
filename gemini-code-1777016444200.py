@@ -2,12 +2,13 @@ import streamlit as st
 import pandas as pd
 import pdfplumber
 import re
+import numpy as np
 from datetime import datetime
 from docx import Document
 import io
 import matplotlib.pyplot as plt
 
-st.title("財報鑑識與風險分析系統")
+st.title("財報鑑識分析系統（穩定重建版）")
 
 company = st.text_input("公司名稱")
 auditor = st.text_input("會計師姓名")
@@ -16,21 +17,26 @@ report_date = st.text_input("查核日期", datetime.now().strftime("%Y/%m/%d"))
 
 files = st.file_uploader("上傳PDF", type=["pdf"], accept_multiple_files=True)
 
-
+# -------------------------
+# PDF讀取
+# -------------------------
 def read_pdf(file):
     text = ""
     with pdfplumber.open(file) as pdf:
-        for page in pdf.pages:
-            text += page.extract_text() or ""
+        for p in pdf.pages:
+            text += p.extract_text() or ""
     return text
 
-
+# -------------------------
+# 數據擷取
+# -------------------------
 def extract(text):
+
     def get(p):
-        try:
-            return float(re.search(p, text).group(1).replace(",", ""))
-        except:
-            return None
+        m = re.search(p, text)
+        if m:
+            return float(m.group(1).replace(",", ""))
+        return None
 
     return {
         "營收": get(r"營業收入[\s:：]*([\d,]+)"),
@@ -40,18 +46,43 @@ def extract(text):
         "現金流": get(r"營業活動.*?([\d,]+)")
     }
 
+# -------------------------
+# 安全除法
+# -------------------------
+def safe_div(a, b):
+    if b is None or b == 0 or a is None:
+        return None
+    return a / b
 
+# -------------------------
+# 計算模型
+# -------------------------
 def calc(df):
-    df["M"] = -4.84 + 0.92 * (df["應收"] / df["營收"])
-    df["Z"] = (
-        1.2 * (df["現金流"] / df["資產"]) +
-        1.4 * (df["營收"] / df["資產"]) +
-        3.3 * (df["營收"] / df["負債"])
+
+    df["M"] = df.apply(
+        lambda r: -4.84 + 0.92 * safe_div(r["應收"], r["營收"])
+        if safe_div(r["應收"], r["營收"]) is not None else None,
+        axis=1
     )
+
+    df["Z"] = df.apply(
+        lambda r: (
+            1.2 * safe_div(r["現金流"], r["資產"]) +
+            1.4 * safe_div(r["營收"], r["資產"]) +
+            3.3 * safe_div(r["營收"], r["負債"])
+        ) if all([
+            r["現金流"], r["資產"], r["營收"], r["負債"]
+        ]) else None,
+        axis=1
+    )
+
     return df
 
-
+# -------------------------
+# 風險分析
+# -------------------------
 def risk(row):
+
     fraud = 0
     embezzle = 0
     scandal = 0
@@ -62,8 +93,8 @@ def risk(row):
     if row["現金流"] and row["現金流"] < 0:
         fraud += 1
 
-    if row["應收"] and row["營收"] and row["營收"] > 0:
-        if (row["應收"] / row["營收"]) > 0.5:
+    if row["應收"] and row["營收"]:
+        if safe_div(row["應收"], row["營收"]) and safe_div(row["應收"], row["營收"]) > 0.5:
             embezzle += 1
 
     if row["Z"] and row["Z"] < 1.81:
@@ -85,23 +116,30 @@ def risk(row):
 
     return " / ".join(result) if result else "正常"
 
-
+# -------------------------
+# 主流程
+# -------------------------
 if files:
 
-    data = []
+    rows = []
 
     for f in files:
         text = read_pdf(f)
         d = extract(text)
         d["年度"] = f.name
-        data.append(d)
+        rows.append(d)
 
-    df = pd.DataFrame(data).fillna(0)
+    df = pd.DataFrame(rows)
+
     df = calc(df)
+
     df["風險"] = df.apply(risk, axis=1)
 
     st.dataframe(df)
 
+    # -------------------------
+    # 趨勢圖
+    # -------------------------
     fig, ax = plt.subplots()
     ax.plot(df["年度"], df["營收"], label="營收")
     ax.plot(df["年度"], df["M"], label="M-score")
@@ -111,24 +149,27 @@ if files:
 
     st.pyplot(fig)
 
+    # -------------------------
+    # Word報告
+    # -------------------------
     doc = Document()
     doc.add_heading("財報查核報告", 0)
 
-    doc.add_paragraph("公司：" + str(company))
-    doc.add_paragraph("會計師：" + str(auditor))
-    doc.add_paragraph("事務所：" + str(firm))
-    doc.add_paragraph("日期：" + str(report_date))
+    doc.add_paragraph(f"公司：{company}")
+    doc.add_paragraph(f"會計師：{auditor}")
+    doc.add_paragraph(f"事務所：{firm}")
+    doc.add_paragraph(f"日期：{report_date}")
 
-    doc.add_paragraph("分析結果")
+    doc.add_paragraph("分析結果：")
 
     for _, r in df.iterrows():
-        doc.add_paragraph(str(r["年度"]) + "：" + str(r["風險"]))
+        doc.add_paragraph(f"{r['年度']}：{r['風險']}")
 
     buffer = io.BytesIO()
     doc.save(buffer)
     buffer.seek(0)
 
-    st.download_button("下載報告", buffer, "audit_report.docx")
+    st.download_button("下載查核報告", buffer, "audit_report.docx")
 
 else:
     st.info("請上傳PDF")

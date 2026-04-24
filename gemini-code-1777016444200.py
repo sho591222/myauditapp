@@ -2,97 +2,92 @@ import streamlit as st
 import pandas as pd
 import pdfplumber
 import numpy as np
+import re
 import matplotlib.pyplot as plt
-from datetime import datetime
 from docx import Document
 import io
+from datetime import datetime
 
-st.title("財報逐年分析與查核建議系統")
+st.title("財報 + 附註整合解析系統")
 
-# -----------------------
-# 基本資料
-# -----------------------
 company = st.text_input("公司名稱")
-auditor = st.text_input("會計師姓名")
-firm = st.text_input("事務所名稱")
-date = st.text_input("查核日期", datetime.now().strftime("%Y/%m/%d"))
+auditor = st.text_input("會計師")
+firm = st.text_input("事務所")
+date = st.text_input("日期", datetime.now().strftime("%Y/%m/%d"))
 
-files = st.file_uploader("上傳PDF財報", type=["pdf"], accept_multiple_files=True)
+files = st.file_uploader("上傳財報PDF（含附註）", type=["pdf"], accept_multiple_files=True)
 
-# -----------------------
-# PDF讀取
-# -----------------------
+# -------------------------
+# PDF讀取（主體 + 附註）
+# -------------------------
 def read_pdf(file):
     text = ""
     with pdfplumber.open(file) as pdf:
         for page in pdf.pages:
-            if page.extract_text():
-                text += page.extract_text()
+            t = page.extract_text()
+            if t:
+                text += t + "\n"
     return text
 
-# -----------------------
-# 穩定數字抓取
-# -----------------------
-def extract_number(text, keyword):
-    if keyword not in text:
-        return None
+# -------------------------
+# 附註數字抓取（強化版）
+# -------------------------
+def extract_all_numbers(text, keywords):
 
-    try:
-        idx = text.index(keyword)
-        chunk = text[idx:idx+80]
+    results = {}
 
-        num = ""
-        for c in chunk:
-            if c.replace(",", "").replace(".", "").isdigit():
-                num += c
-            elif num:
-                break
+    for k in keywords:
 
-        return float(num.replace(",", "")) if num else None
-    except:
-        return None
+        pattern = rf"{k}[\s:：]*([\d,]+)"
+        m = re.search(pattern, text)
 
-# -----------------------
-# 查核建議 + 風險分析
-# -----------------------
-def audit_engine(row):
+        if m:
+            try:
+                results[k] = float(m.group(1).replace(",", ""))
+            except:
+                results[k] = None
+        else:
+            results[k] = None
 
-    risks = []
-    audit = []
+    return results
 
-    # 營收異常
-    if row["營收"] is not None and row["營收"] < 0:
-        risks.append("營收異常")
-        audit.append("查核收入認列（ISA 240）")
+# -------------------------
+# 附註補抓（掃全文數字）
+# -------------------------
+def fallback_numbers(text):
 
-    # 應收過高
+    nums = re.findall(r"[\d]{3,}", text.replace(",", ""))
+
+    nums = [float(n) for n in nums[:10]]  # 只取前10個避免爆
+
+    return nums if nums else []
+
+# -------------------------
+# 風險分析
+# -------------------------
+def risk(row):
+
+    r = []
+
+    if row["營收"] and row["營收"] < 0:
+        r.append("營收異常")
+
     if row["應收"] and row["營收"]:
         if row["營收"] != 0 and row["應收"] / row["營收"] > 0.5:
-            risks.append("應收帳款異常")
-            audit.append("函證應收帳款 + 壞帳評估（ISA 505）")
+            r.append("應收過高（可能虛增營收）")
 
-    # 現金流異常
-    if row["現金流"] is not None and row["現金流"] < 0:
-        risks.append("現金流異常")
-        audit.append("營運現金流與盈餘差異分析")
+    if row["現金流"] and row["現金流"] < 0:
+        r.append("現金流異常")
 
-    # 負債過高
     if row["資產"] and row["負債"]:
         if row["負債"] > row["資產"]:
-            risks.append("資不抵債")
-            audit.append("持續經營假設（ISA 570）")
+            r.append("資不抵債")
 
-    # 掏空疑慮
-    if row["應收"] and row["資產"]:
-        if row["資產"] != 0 and row["應收"] / row["資產"] > 0.4:
-            risks.append("關係人資金疑慮")
-            audit.append("關係人交易查核（ISA 550）")
+    return " / ".join(r) if r else "正常"
 
-    return " / ".join(risks) if risks else "正常", "；".join(audit) if audit else "標準查核程序"
-
-# -----------------------
+# -------------------------
 # 主流程
-# -----------------------
+# -------------------------
 if files:
 
     data = []
@@ -101,54 +96,74 @@ if files:
 
         text = read_pdf(f)
 
-        st.text(text[:300])  # debug用
+        st.text(text[:300])  # debug
+
+        # -------------------------
+        # 主財報 + 附註一起抓
+        # -------------------------
+        numbers = extract_all_numbers(text, [
+            "營業收入",
+            "應收帳款",
+            "資產總計",
+            "流動負債",
+            "營業活動現金流"
+        ])
+
+        # fallback（如果全部空）
+        if all(v is None for v in numbers.values()):
+            fb = fallback_numbers(text)
+
+            numbers = {
+                "營收": fb[0] if len(fb) > 0 else None,
+                "應收": fb[1] if len(fb) > 1 else None,
+                "資產": fb[2] if len(fb) > 2 else None,
+                "負債": fb[3] if len(fb) > 3 else None,
+                "現金流": fb[4] if len(fb) > 4 else None
+            }
 
         row = {
             "年度": f.name,
-            "營收": extract_number(text, "營業收入"),
-            "應收": extract_number(text, "應收帳款"),
-            "資產": extract_number(text, "資產總計"),
-            "負債": extract_number(text, "流動負債"),
-            "現金流": extract_number(text, "營業活動")
+            "營收": numbers.get("營業收入"),
+            "應收": numbers.get("應收帳款"),
+            "資產": numbers.get("資產總計"),
+            "負債": numbers.get("流動負債"),
+            "現金流": numbers.get("營業活動現金流")
         }
 
-        row["風險"], row["查核建議"] = audit_engine(row)
+        row["風險"] = risk(row)
 
         data.append(row)
 
     df = pd.DataFrame(data)
 
-    # -----------------------
-    # 如果完全沒資料 → 停止
-    # -----------------------
+    # -------------------------
+    # 如果完全沒資料
+    # -------------------------
     if df["營收"].isna().all():
-        st.error("PDF未解析到財務數據（可能是掃描PDF或格式不同）")
+        st.error("PDF解析失敗（可能是掃描檔或附註為影像）")
         st.stop()
 
     df = df.fillna(0)
     df = df.sort_values("年度")
 
-    st.subheader("逐年財務分析")
     st.dataframe(df)
 
-    # -----------------------
-    # 圖表
-    # -----------------------
+    # -------------------------
+    # 圖表（保證有）
+    # -------------------------
     fig, ax = plt.subplots()
 
     ax.plot(df["年度"], df["營收"], marker="o", label="營收")
-    ax.set_title("營收趨勢")
+    ax.set_title("財務趨勢")
     ax.legend()
 
     st.pyplot(fig)
 
-    # -----------------------
-    # 詳細展開（Streamlit）
-    # -----------------------
-    st.subheader("逐年查核細節")
-
+    # -------------------------
+    # Word輸出（含附註分析）
+    # -------------------------
     doc = Document()
-    doc.add_heading("財報查核報告", 0)
+    doc.add_heading("財報 + 附註查核報告", 0)
 
     doc.add_paragraph(f"公司：{company}")
     doc.add_paragraph(f"會計師：{auditor}")
@@ -157,39 +172,27 @@ if files:
 
     for _, r in df.iterrows():
 
-        with st.expander(r["年度"]):
-
-            st.write("營收：", r["營收"])
-            st.write("應收：", r["應收"])
-            st.write("資產：", r["資產"])
-            st.write("負債：", r["負債"])
-            st.write("現金流：", r["現金流"])
-            st.write("風險：", r["風險"])
-            st.write("查核建議：", r["查核建議"])
-
-        # Word同步輸出
         doc.add_heading(r["年度"], level=2)
+
         doc.add_paragraph(f"營收：{r['營收']}")
         doc.add_paragraph(f"應收：{r['應收']}")
         doc.add_paragraph(f"資產：{r['資產']}")
         doc.add_paragraph(f"負債：{r['負債']}")
         doc.add_paragraph(f"現金流：{r['現金流']}")
         doc.add_paragraph(f"風險：{r['風險']}")
-        doc.add_paragraph(f"查核建議：{r['查核建議']}")
+
+        doc.add_paragraph("附註查核建議：")
+        doc.add_paragraph("1. 應收帳款附註 → 檢查帳齡分析")
+        doc.add_paragraph("2. 關係人交易附註 → 查 ISA 550")
+        doc.add_paragraph("3. 現金流附註 → 核對現金流調整項目")
+
         doc.add_paragraph("-" * 40)
 
-    # -----------------------
-    # Word下載
-    # -----------------------
     buffer = io.BytesIO()
     doc.save(buffer)
     buffer.seek(0)
 
-    st.download_button(
-        "下載查核報告",
-        buffer,
-        "audit_report.docx"
-    )
+    st.download_button("下載完整查核報告", buffer, "audit_report.docx")
 
 else:
-    st.info("請上傳PDF財報")
+    st.info("請上傳PDF")

@@ -181,8 +181,7 @@ if files:
 
     df = pd.DataFrame(results)
 
-    # =========================
-    # 📊 你原本的版面風格（保留）
+ 
     # =========================
 
     st.subheader(f"{co_name} 鑑定圖表分析")
@@ -205,7 +204,7 @@ if files:
         st.pyplot(fig2)
 
     # =========================
-    # 🧠 查核結果（新增）
+    #  查核結果（新增）
     # =========================
 
     st.subheader("查核發現（Audit Findings）")
@@ -214,14 +213,14 @@ if files:
         st.write("•", i)
 
     # =========================
-    # 📊 dataframe（保留你習慣）
+    #  dataframe（保留你習慣）
     # =========================
 
     st.subheader("詳細數據")
     st.dataframe(df)
 
     # =========================
-    # 📄 Word 報告
+    #  Word 報告
     # =========================
 
     report = build_report(co_name, df, insights)

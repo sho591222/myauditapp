@@ -1,291 +1,235 @@
 import streamlit as st
-import sqlite3
-import hashlib
-import pandas as pd
 import pdfplumber
+import pandas as pd
 import matplotlib.pyplot as plt
 import io
 import re
 from docx import Document
+from docx.shared import Inches
 
 
 # =========================
-# DATABASE
+# UI
 # =========================
 
-conn = sqlite3.connect("users.db", check_same_thread=False)
-c = conn.cursor()
+st.title("玄武會計師事務所｜AI 查核系統 v30（證據定位版）")
 
-c.execute("""
-CREATE TABLE IF NOT EXISTS users (
-    username TEXT PRIMARY KEY,
-    password TEXT,
-    role TEXT
-)
-""")
+mode = st.selectbox("分析模式", ["公司內部", "會計師事務所"])
 
-conn.commit()
-
-
-def hash_pw(pw):
-    return hashlib.sha256(pw.encode()).hexdigest()
-
-
-def register_user(u, p, r):
-    try:
-        c.execute("INSERT INTO users VALUES (?,?,?)", (u, hash_pw(p), r))
-        conn.commit()
-        return True
-    except:
-        return False
-
-
-def login_user(u, p):
-    c.execute("SELECT password, role FROM users WHERE username=?", (u,))
-    d = c.fetchone()
-
-    if d and d[0] == hash_pw(p):
-        return True, d[1]
-
-    return False, None
+files = st.file_uploader("上傳財報PDF", type="pdf", accept_multiple_files=True)
 
 
 # =========================
-# SESSION INIT
+# PDF PARSER（含頁數）
 # =========================
 
-if "login" not in st.session_state:
-    st.session_state.login = False
-    st.session_state.role = None
+def extract_pdf(file):
 
+    pages_data = []
 
-# =========================
-# UI HEADER
-# =========================
+    with pdfplumber.open(file) as pdf:
 
-st.title("玄武會計師事務所｜AI 查核系統 v27")
+        for i, page in enumerate(pdf.pages):
 
+            text = page.extract_text() or ""
 
-# =========================
-# AUTH BLOCK（唯一入口）
-# =========================
-
-page = st.sidebar.radio("入口", ["登入", "註冊"])
-
-
-# =========================
-# REGISTER
-# =========================
-
-if page == "註冊":
-
-    st.subheader("註冊")
-
-    u = st.text_input("帳號")
-    p = st.text_input("密碼", type="password")
-    r = st.selectbox("角色", ["公司", "事務所"])
-
-    if st.button("註冊"):
-
-        if register_user(u, p, r):
-            st.success("註冊成功")
-        else:
-            st.error("帳號已存在")
-
-
-# =========================
-# LOGIN
-# =========================
-
-if page == "登入":
-
-    st.subheader("登入")
-
-    u = st.text_input("帳號")
-    p = st.text_input("密碼", type="password")
-
-    if st.button("登入"):
-
-        ok, role = login_user(u, p)
-
-        if ok:
-            st.session_state.login = True
-            st.session_state.role = role
-            st.success("登入成功")
-
-        else:
-            st.error("錯誤")
-
-
-# =========================
-# 🚨 MAIN SYSTEM (ONLY AFTER LOGIN)
-# =========================
-
-if st.session_state.login:
-
-
-    st.divider()
-
-    st.subheader("財報分析主系統")
-
-    st.write("角色：", st.session_state.role)
-
-
-    # =========================
-    # PDF UPLOAD
-    # =========================
-
-    files = st.file_uploader(
-        "上傳財報 PDF",
-        type="pdf",
-        accept_multiple_files=True
-    )
-
-
-    def parse(file):
-        text = ""
-        with pdfplumber.open(file) as pdf:
-            for p in pdf.pages:
-                text += p.extract_text() or ""
-        return text
-
-
-    def extract(text, key):
-        m = re.search(rf"{key}.*?([\d,]+)", text)
-        if m:
-            return float(m.group(1).replace(",", ""))
-        return 0
-
-
-    data = []
-
-
-    if files:
-
-        for f in files:
-
-            t = parse(f)
-
-            data.append({
-                "year": f.name,
-                "revenue": extract(t, "營業收入"),
-                "profit": extract(t, "本期淨利"),
-                "assets": extract(t, "資產總額"),
-                "liabilities": extract(t, "負債總額")
+            pages_data.append({
+                "page": i + 1,
+                "text": text
             })
 
-
-    # =========================
-    # ANALYSIS ENGINE
-    # =========================
-
-    if data:
-
-        df = pd.DataFrame(data)
-
-        st.dataframe(df)
+    return pages_data
 
 
-        # chart
-        fig, ax = plt.subplots()
+# =========================
+# KEYWORD DETECTION
+# =========================
 
-        ax.plot(df["year"], df["revenue"], label="營收")
-        ax.plot(df["year"], df["profit"], label="淨利")
+def detect_issues(page_text, page_num, mode):
 
-        ax.legend()
+    issues = []
 
-        st.pyplot(fig)
+    # -------------------------
+    # COMMON DETECTION
+    # -------------------------
+
+    if "應收帳款" in page_text:
+        issues.append((page_num, "應收帳款異常或需函證"))
+
+    if "存貨" in page_text:
+        issues.append((page_num, "存貨跌價或盤點風險"))
+
+    if "關係人" in page_text:
+        issues.append((page_num, "關係人交易需查核"))
+
+    if "負債" in page_text:
+        issues.append((page_num, "負債完整性風險"))
 
 
-        # ratio
-        df["margin"] = df["profit"] / df["revenue"]
-        df["leverage"] = df["liabilities"] / df["assets"]
+    # -------------------------
+    # MODE LOGIC
+    # -------------------------
+
+    if mode == "會計師事務所":
+
+        if "收入" in page_text:
+            issues.append((page_num, "收入 cut-off test"))
+
+        if "費用" in page_text:
+            issues.append((page_num, "費用完整性測試"))
+
+        issues.append((page_num, "函證程序（應收帳款）"))
+
+    else:
+
+        if "費用" in page_text:
+            issues.append((page_num, "費用異常偏高"))
+
+        if "現金" in page_text:
+            issues.append((page_num, "現金流量異常"))
+
+    return issues
 
 
-        # =========================
-        # MODE LOGIC
-        # =========================
+# =========================
+# DATA STORAGE
+# =========================
 
-        st.subheader("分析建議")
+all_issues = []
+page_map = []
 
-        if st.session_state.role == "事務所":
 
-            st.write([
-                "應收帳款函證",
-                "收入 cut-off test",
-                "存貨盤點",
-                "關係人交易查核",
-                "ISA 240 舞弊風險"
-            ])
+if files:
 
+    for f in files:
+
+        pages = extract_pdf(f)
+
+        for p in pages:
+
+            page_map.append({
+                "page": p["page"],
+                "text": p["text"]
+            })
+
+            issues = detect_issues(p["text"], p["page"], mode)
+
+            all_issues.extend(issues)
+
+
+# =========================
+# DISPLAY
+# =========================
+
+if page_map:
+
+    st.subheader("PDF頁面分析")
+
+    for p in page_map:
+
+        st.write(f"第 {p['page']} 頁")
+
+        if len(p["text"]) > 200:
+            st.text(p["text"][:200] + "...")
         else:
-
-            st.write([
-                "獲利能力分析",
-                "成本結構分析",
-                "財務槓桿分析"
-            ])
+            st.text(p["text"])
 
 
-        # =========================
-        # FRAUD SCORE
-        # =========================
+# =========================
+# ISSUE OUTPUT
+# =========================
 
-        score = 0
+if all_issues:
 
-        if df["profit"].mean() < 0:
-            score += 30
+    st.subheader("查核發現（頁面定位）")
 
-        if df["leverage"].mean() > 0.7:
-            score += 25
+    for page, issue in all_issues:
 
-        if df["margin"].mean() < 0.1:
-            score += 20
-
-        score = min(score, 100)
-
-        st.subheader("風險分數")
-        st.write(score)
+        st.write(f"第 {page} 頁 → {issue}")
 
 
-        # =========================
-        # ISA 700
-        # =========================
+# =========================
+# SIMPLE FINANCIAL MODEL (optional demo)
+# =========================
 
-        if score < 30:
-            st.write("ISA 700：無保留意見")
+df = pd.DataFrame({
+    "year": ["2021", "2022", "2023"],
+    "revenue": [1000, 1200, 900],
+    "profit": [100, 80, -50]
+})
 
-        elif score < 60:
-            st.write("ISA 700：保留意見")
+fig, ax = plt.subplots()
+ax.plot(df["year"], df["revenue"], label="營收")
+ax.plot(df["year"], df["profit"], label="淨利")
+ax.legend()
 
-        elif score < 85:
-            st.write("ISA 700：否定意見風險")
-
-        else:
-            st.write("ISA 700：無法表示意見")
+st.pyplot(fig)
 
 
-        # =========================
-        # REPORT EXPORT
-        # =========================
+# =========================
+# RISK SCORE
+# =========================
 
-        if st.button("產出報告"):
+score = 0
 
-            doc = Document()
-            doc.add_heading("AI 查核報告 v27", 0)
+if len([x for x in all_issues if "關係人" in x[1]]) > 0:
+    score += 30
 
-            doc.add_paragraph(f"Risk Score: {score}")
+if len([x for x in all_issues if "存貨" in x[1]]) > 2:
+    score += 20
 
-            buffer = io.BytesIO()
-            doc.save(buffer)
-            buffer.seek(0)
+if len([x for x in all_issues if "應收帳款" in x[1]]) > 2:
+    score += 20
 
-            st.download_button(
-                "下載報告",
-                buffer,
-                file_name="audit_v27.docx"
-            )
+score = min(score, 100)
 
-else:
+st.subheader("風險分數")
+st.write(score)
 
-    st.warning("請先登入才能使用財報分析系統")
+
+# =========================
+# REPORT GENERATION (WORD)
+# =========================
+
+if st.button("產出完整查核報告"):
+
+    doc = Document()
+
+    doc.add_heading("AI 查核報告 v30（證據定位版）", 0)
+
+    doc.add_paragraph(f"模式：{mode}")
+    doc.add_paragraph(f"風險分數：{score}")
+
+    doc.add_paragraph("\n=== 查核發現（頁面定位） ===")
+
+    for page, issue in all_issues:
+        doc.add_paragraph(f"第 {page} 頁 → {issue}")
+
+
+    doc.add_paragraph("\n=== 查核建議科目 ===")
+
+    if mode == "會計師事務所":
+
+        doc.add_paragraph("應收帳款函證")
+        doc.add_paragraph("收入 cut-off")
+        doc.add_paragraph("存貨盤點")
+        doc.add_paragraph("關係人交易查核")
+
+    else:
+
+        doc.add_paragraph("應收帳款回收性分析")
+        doc.add_paragraph("存貨跌價風險")
+        doc.add_paragraph("費用異常分析")
+
+
+    doc.add_paragraph("\n=== 財務圖表已附（系統內） ===")
+
+    buffer = io.BytesIO()
+    doc.save(buffer)
+    buffer.seek(0)
+
+    st.download_button(
+        "下載查核報告",
+        buffer,
+        file_name="audit_v30.docx"
+    )

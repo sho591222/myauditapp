@@ -10,27 +10,21 @@ from docx import Document
 import io
 from datetime import datetime
 
-from sentence_transformers import SentenceTransformer
-import faiss
+
+# =====================================================
+# 🏢 標題
+# =====================================================
+
+st.title("玄武會計師事務所  企業審計系統")
 
 
 # =====================================================
-# 🏢 系統標題
-# =====================================================
-
-st.markdown("""
-# 玄武會計師事務所
-##財報分析及審計系統
----
-""")
-
-
-# =====================================================
-# 🗄️ DB（完整穩定版）
+# 🗄️ DB（穩定版）
 # =====================================================
 
 conn = sqlite3.connect("audit.db", check_same_thread=False)
 c = conn.cursor()
+
 
 c.execute("""
 CREATE TABLE IF NOT EXISTS users (
@@ -42,6 +36,7 @@ CREATE TABLE IF NOT EXISTS users (
 )
 """)
 
+
 c.execute("""
 CREATE TABLE IF NOT EXISTS audit_log (
     email TEXT,
@@ -50,11 +45,12 @@ CREATE TABLE IF NOT EXISTS audit_log (
 )
 """)
 
+
 conn.commit()
 
 
 # =====================================================
-# 🔐 hash
+# 🔐 密碼
 # =====================================================
 
 def hash_pw(pw):
@@ -62,7 +58,7 @@ def hash_pw(pw):
 
 
 # =====================================================
-# 📜 audit log（不可缺）
+# 📜 log
 # =====================================================
 
 def log(email, action):
@@ -76,22 +72,25 @@ def log(email, action):
 
 
 # =====================================================
-# 🧾 註冊（完整企業版）
+# 🧾 註冊（完全修復版）
 # =====================================================
 
 def register(email, pw, role, company, firm):
 
     if not email or not pw:
-        st.error("Email / 密碼不可為空")
+        st.error("Email / 密碼不可空")
         return
 
+    # 防重複
     c.execute("SELECT 1 FROM users WHERE email=?", (email,))
     if c.fetchone():
         st.error("Email 已存在")
         return
 
+    # 安全 insert（重點修正）
     c.execute("""
-        INSERT INTO users VALUES (?,?,?,?,?)
+        INSERT INTO users (email, password, role, company, firm)
+        VALUES (?, ?, ?, ?, ?)
     """, (email, hash_pw(pw), role, company, firm))
 
     conn.commit()
@@ -136,7 +135,7 @@ def parse_pdf(files):
 
 
 # =====================================================
-# 📊 年度財報
+# 📊 財報數據
 # =====================================================
 
 def financial_data():
@@ -151,19 +150,20 @@ def financial_data():
 
 
 # =====================================================
-# 🧠 AI 財務分析（完整整合）
+# 🧠 財務分析（整合版）
 # =====================================================
 
-def financial_analysis(text, df, role):
+def analyze(text, df, role):
 
     core = []
     risk = []
     audit = []
-    yearly = []
+    year = []
 
-    # =========================
+
+    # =====================
     # 四大報表
-    # =========================
+    # =====================
 
     if "資產" in text:
         core.append("資產負債表分析")
@@ -175,12 +175,12 @@ def financial_analysis(text, df, role):
         core.append("現金流量分析")
 
     if "負債" in text:
-        core.append("負債結構分析")
+        core.append("負債分析")
 
 
-    # =========================
-    # 舞弊 / 掏空 / 不實
-    # =========================
+    # =====================
+    # 風險分析
+    # =====================
 
     if "虛增" in text:
         risk.append("財報不實風險")
@@ -195,44 +195,41 @@ def financial_analysis(text, df, role):
         risk.append("舞弊風險")
 
 
-    # =========================
-    # 會計師查核建議
-    # =========================
+    # =====================
+    # 查核建議（會計師）
+    # =====================
 
     audit += [
         "收入認列測試",
         "應收帳款函證",
         "存貨盤點",
         "關係人交易查核",
-        "現金流測試"
+        "現金流驗證"
     ]
 
 
-    # =========================
+    # =====================
     # 年度分析
-    # =========================
+    # =====================
 
     df["成長率"] = df["營收"].pct_change()
 
     if df["營收"].iloc[-1] < df["營收"].iloc[0]:
-        yearly.append("營收下降趨勢")
+        year.append("營收下降")
 
     if df["獲利"].iloc[-1] < 0:
-        yearly.append("出現虧損")
+        year.append("出現虧損")
 
     if df["負債"].iloc[-1] > df["負債"].iloc[0]:
-        yearly.append("負債增加")
+        year.append("負債上升")
 
 
-    # =========================
-    # 事務所模式加強
-    # =========================
-
+    # 會計師模式加強
     if role == "會計師事務所":
-        audit += ["加強收入查核", "加強關係人揭露"]
+        audit += ["加強收入查核", "加強關係人查核"]
 
 
-    return core, risk, audit, yearly, df
+    return core, risk, audit, year, df
 
 
 # =====================================================
@@ -252,63 +249,30 @@ def chart(df):
 
 
 # =====================================================
-# 🧠 RAG 財報問答（完整）
+# 📄 Word
 # =====================================================
 
-model = SentenceTransformer("all-MiniLM-L6-v2")
-docs = []
-index = None
-
-
-def rag_add(text):
-
-    docs.append(text)
-
-
-def rag_build():
-
-    global index
-
-    vecs = model.encode(docs)
-
-    index = faiss.IndexFlatL2(len(vecs[0]))
-    index.add(np.array(vecs))
-
-
-def rag_query(q):
-
-    qv = model.encode([q])
-
-    D, I = index.search(np.array(qv), k=3)
-
-    return [docs[i] for i in I[0]]
-
-
-# =====================================================
-# 📄 Word 報告（完整）
-# =====================================================
-
-def make_word(core, risk, audit, yearly, df, fig):
+def make_word(core, risk, audit, year, df, fig):
 
     doc = Document()
 
-    doc.add_heading("v70 Production Audit Report", 0)
+    doc.add_heading("v70 查核報告", 0)
 
     doc.add_heading("財務分析", 1)
-    for c in core:
-        doc.add_paragraph(c)
+    for i in core:
+        doc.add_paragraph(i)
 
     doc.add_heading("風險分析", 1)
-    for r in risk:
-        doc.add_paragraph(r)
+    for i in risk:
+        doc.add_paragraph(i)
 
     doc.add_heading("查核建議", 1)
-    for a in audit:
-        doc.add_paragraph(a)
+    for i in audit:
+        doc.add_paragraph(i)
 
     doc.add_heading("年度分析", 1)
-    for y in yearly:
-        doc.add_paragraph(y)
+    for i in year:
+        doc.add_paragraph(i)
 
     img = "chart.png"
     fig.savefig(img)
@@ -326,7 +290,7 @@ def make_word(core, risk, audit, yearly, df, fig):
 # 📊 Excel
 # =====================================================
 
-def make_excel(core, risk, audit, yearly, df):
+def make_excel(core, risk, audit, year, df):
 
     buf = io.BytesIO()
 
@@ -335,7 +299,7 @@ def make_excel(core, risk, audit, yearly, df):
         pd.DataFrame(core).to_excel(w, sheet_name="分析")
         pd.DataFrame(risk).to_excel(w, sheet_name="風險")
         pd.DataFrame(audit).to_excel(w, sheet_name="查核")
-        pd.DataFrame(yearly).to_excel(w, sheet_name="年度")
+        pd.DataFrame(year).to_excel(w, sheet_name="年度")
         df.to_excel(w, sheet_name="財報")
 
     buf.seek(0)
@@ -410,7 +374,7 @@ files = st.file_uploader("上傳PDF（可多選）", type=["pdf"], accept_multip
 
 
 # =====================================================
-# 🚀 main analysis
+# 🚀 main
 # =====================================================
 
 if files:
@@ -419,7 +383,7 @@ if files:
 
     df = financial_data()
 
-    core, risk, audit, yearly, df = financial_analysis(text, df, role)
+    core, risk, audit, year, df = analyze(text, df, role)
 
     fig = chart(df)
 
@@ -434,10 +398,10 @@ if files:
     st.write(audit)
 
     st.subheader("年度分析")
-    st.write(yearly)
+    st.write(year)
 
     st.pyplot(fig)
 
 
-    st.download_button("Word報告", make_word(core, risk, audit, yearly, df, fig))
-    st.download_button("Excel報告", make_excel(core, risk, audit, yearly, df))
+    st.download_button("Word報告", make_word(core, risk, audit, year, df, fig))
+    st.download_button("Excel報告", make_excel(core, risk, audit, year, df))

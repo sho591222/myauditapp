@@ -4,3 +4,5 @@ pdfplumber
 matplotlib
 python-docx
 requests
+gspread
+google-auth

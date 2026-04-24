@@ -10,18 +10,18 @@ import io
 
 
 # =====================================================
-# 🏢 系統標題（固定玄武會計師事務所）
+# 🏢 標題
 # =====================================================
 
 st.markdown("""
-#  玄武會計師事務所
-## AI 四大報表年度分析舞弊查核整合系統
+# 玄武會計師事務所
+## AI 財務分析查核系統 
 ---
 """)
 
 
 # =====================================================
-# 🗄️ DB（修正版：避免 crash）
+# 🗄️ DB（修正版：穩定不爆）
 # =====================================================
 
 conn = sqlite3.connect("audit.db", check_same_thread=False)
@@ -49,34 +49,34 @@ def hash_pw(pw):
 
 
 # =====================================================
-# 🧾 註冊（已修復：防重複）
+# 🧾 註冊（已修復：不再 OperationalError）
 # =====================================================
 
 def register(email, pw, role, company, firm):
 
-    try:
+    # 防呆：空值
+    if not email or not pw:
+        st.error("Email 或密碼不可為空")
+        return
 
-        # 🔍 防止重複
-        c.execute("SELECT email FROM users WHERE email=?", (email,))
-        if c.fetchone():
-            st.error("Email 已存在")
-            return
+    # 已存在
+    c.execute("SELECT 1 FROM users WHERE email=?", (email,))
+    if c.fetchone():
+        st.error("Email 已存在")
+        return
 
-        c.execute(
-            "INSERT INTO users VALUES (?,?,?,?,?)",
-            (email, hash_pw(pw), role, company, firm)
-        )
+    # 寫入
+    c.execute("""
+        INSERT INTO users (email, password, role, company, firm)
+        VALUES (?, ?, ?, ?, ?)
+    """, (email, hash_pw(pw), role, company, firm))
 
-        conn.commit()
-
-        st.success("註冊成功")
-
-    except Exception as e:
-        st.error(str(e))
+    conn.commit()
+    st.success("註冊成功")
 
 
 # =====================================================
-# 🔐 login
+# 🔐 登入
 # =====================================================
 
 def login(email, pw):
@@ -108,7 +108,7 @@ roles = ["公司使用者", "會計師事務所", "外部使用者"]
 
 
 # =====================================================
-# 🧾 註冊（互斥欄位：你要求的）
+# 🧾 註冊（互斥邏輯）
 # =====================================================
 
 if mode == "註冊":
@@ -119,18 +119,13 @@ if mode == "註冊":
     firm = ""
 
     if role == "公司使用者":
-
         company = st.text_input("公司名稱（只能填這個）")
-        st.write("公司模式：不可填事務所")
 
     elif role == "會計師事務所":
-
         firm = st.text_input("會計師事務所名稱（只能填這個）")
-        st.write("事務所模式：不可填公司")
 
 
     if st.button("註冊"):
-
         register(email, pw, role, company, firm)
 
 
@@ -167,28 +162,17 @@ st.subheader(f"目前身分：{role}")
 
 
 # =====================================================
-# 📄 PDF（多選）
+# 📄 PDF 多檔
 # =====================================================
 
-pdf_files = st.file_uploader(
-    "上傳PDF（可多選）",
-    type=["pdf"],
-    accept_multiple_files=True
-)
-
-
-# =====================================================
-# 📊 Excel
-# =====================================================
-
-excel_file = st.file_uploader("上傳Excel")
+files = st.file_uploader("上傳PDF（可多選）", type=["pdf"], accept_multiple_files=True)
 
 
 # =====================================================
 # 📄 PDF解析
 # =====================================================
 
-def parse_pdfs(files):
+def parse_pdf(files):
 
     text = ""
 
@@ -201,10 +185,10 @@ def parse_pdfs(files):
 
 
 # =====================================================
-# 📊 年度資料（含比較）
+# 📊 年度資料
 # =====================================================
 
-def yearly_data():
+def yearly_df():
 
     return pd.DataFrame({
         "年度": ["2022", "2023", "2024"],
@@ -216,95 +200,71 @@ def yearly_data():
 
 
 # =====================================================
-# 🧠 核心分析（全部整合）
+# 🧠 分析引擎
 # =====================================================
 
 def analyze(text, df, role):
 
     core = []
-    suggestions = []
-    yearly_notes = []
+    risk = []
+    yearly = []
 
-    # =========================
     # 四大報表
-    # =========================
-
     if "資產" in text:
-        core.append(("資產負債表", "流動性分析", 70))
-
-    if "負債" in text:
-        core.append(("負債結構", "償債能力", 60))
+        core.append(("資產負債表", "流動性"))
 
     if "損益" in text:
-        core.append(("損益表", "收入認列", 65))
+        core.append(("損益表", "獲利能力"))
 
-    if "現金流量" in text:
-        core.append(("現金流量表", "現金流分析", 55))
+    if "現金流" in text:
+        core.append(("現金流量表", "現金狀況"))
+
+    if "負債" in text:
+        core.append(("負債表", "償債能力"))
 
 
-    # =========================
-    # 舞弊 / 掏空 / 不實
-    # =========================
-
+    # 舞弊
     if "虛增" in text:
-        core.append(("財報不實", "收入虛增", 90))
-        suggestions.append("查：收入/應收帳款")
+        risk.append("財報不實風險")
 
-    if "資金流向" in text:
-        core.append(("掏空", "資金異常", 85))
-        suggestions.append("查：現金/關係人")
+    if "資金流" in text:
+        risk.append("掏空風險")
 
     if "偽造" in text:
-        core.append(("舞弊", "文件異常", 95))
-        suggestions.append("查：憑證")
+        risk.append("舞弊風險")
 
 
-    # =========================
-    # 年度分析（你要的）
-    # =========================
-
-    df["營收成長率"] = df["營收"].pct_change()
+    # 年度分析
+    df["成長率"] = df["營收"].pct_change()
 
     if df["營收"].iloc[-1] < df["營收"].iloc[0]:
-        yearly_notes.append("營收下降")
+        yearly.append("營收下降")
 
     if df["獲利"].iloc[-1] < 0:
-        yearly_notes.append("虧損出現")
+        yearly.append("虧損出現")
 
     if df["負債"].iloc[-1] > df["負債"].iloc[0]:
-        yearly_notes.append("負債上升")
+        yearly.append("負債增加")
 
 
-    # =========================
-    # 事務所模式
-    # =========================
-
+    # 事務所模式加強
     if role == "會計師事務所":
-
-        suggestions += [
-            "查核：收入認列",
-            "查核：應收帳款",
-            "查核：存貨",
-            "查核：關係人",
-            "查核：現金流"
-        ]
+        risk += ["查核：收入", "查核：應收帳款", "查核：關係人"]
 
 
-    return core, suggestions, yearly_notes, df
+    return core, risk, yearly, df
 
 
 # =====================================================
-# 📊 圖表（年度）
+# 📊 圖表
 # =====================================================
 
 def chart(df):
 
     fig, ax = plt.subplots()
 
-    ax.plot(df["年度"], df["營收"], label="營收")
-    ax.plot(df["年度"], df["獲利"], label="獲利")
-
-    ax.legend()
+    ax.plot(df["年度"], df["營收"])
+    ax.plot(df["年度"], df["獲利"])
 
     return fig
 
@@ -313,28 +273,25 @@ def chart(df):
 # 📄 Word
 # =====================================================
 
-def make_word(core, suggestions, yearly, df, fig):
+def make_word(core, risk, yearly, df, fig):
 
     doc = Document()
 
-    doc.add_heading("ISA700 查核報告", 0)
+    doc.add_heading("查核報告 v67", 0)
 
     doc.add_heading("財務分析", 1)
-
     for c in core:
         doc.add_paragraph(str(c))
 
-    doc.add_heading("年度分析", 1)
+    doc.add_heading("風險分析", 1)
+    for r in risk:
+        doc.add_paragraph(r)
 
+    doc.add_heading("年度分析", 1)
     for y in yearly:
         doc.add_paragraph(y)
 
     doc.add_paragraph(str(df))
-
-    doc.add_heading("查核建議", 1)
-
-    for s in suggestions:
-        doc.add_paragraph(s)
 
     img = "chart.png"
     fig.savefig(img)
@@ -352,14 +309,14 @@ def make_word(core, suggestions, yearly, df, fig):
 # 📊 Excel
 # =====================================================
 
-def make_excel(core, suggestions, yearly, df):
+def make_excel(core, risk, yearly, df):
 
     output = io.BytesIO()
 
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
 
         pd.DataFrame(core).to_excel(writer, sheet_name="分析")
-        pd.DataFrame(suggestions).to_excel(writer, sheet_name="查核")
+        pd.DataFrame(risk).to_excel(writer, sheet_name="風險")
         pd.DataFrame(yearly).to_excel(writer, sheet_name="年度")
         df.to_excel(writer, sheet_name="數據")
 
@@ -372,28 +329,26 @@ def make_excel(core, suggestions, yearly, df):
 # 🚀 主流程
 # =====================================================
 
-if pdf_files:
+if files:
 
-    text = parse_pdfs(pdf_files)
+    text = parse_pdf(files)
 
-    df = yearly_data()
+    df = yearly_df()
 
-    core, suggestions, yearly, df = analyze(text, df, role)
+    core, risk, yearly, df = analyze(text, df, role)
 
 
     st.subheader("財務分析")
-    for c in core:
-        st.write(c)
+    st.write(core)
 
+    st.subheader("風險分析")
+    st.write(risk)
 
     st.subheader("年度分析")
-    for y in yearly:
-        st.write(y)
+    st.write(yearly)
+
+    st.pyplot(chart(df))
 
 
-    fig = chart(df)
-    st.pyplot(fig)
-
-
-    st.download_button("Word報告", make_word(core, suggestions, yearly, df, fig))
-    st.download_button("Excel報告", make_excel(core, suggestions, yearly, df))
+    st.download_button("Word報告", make_word(core, risk, yearly, df, chart(df)))
+    st.download_button("Excel報告", make_excel(core, risk, yearly, df))

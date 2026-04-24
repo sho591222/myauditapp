@@ -4,3 +4,4 @@ python-docx
 pypdf
 matplotlib
 seaborn
+scipy

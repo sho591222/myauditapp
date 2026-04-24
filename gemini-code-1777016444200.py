@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-import sqlite3
 import datetime
 from docx import Document
 import io
@@ -11,44 +10,53 @@ import io
 # =========================
 
 st.set_page_config(layout="wide")
-st.title("玄武會計師事務所｜企業雙層財報分析系統 v15")
+st.title("玄武會計師事務所｜企業雙流程系統 v17")
 
 
 # =========================
-# MODE SELECT
+# MODE SELECT (三大區塊)
 # =========================
 
-mode = st.sidebar.selectbox(
-    "使用模式",
-    ["公司內部分析模式", "會計師事務所模式", "玄武會計師事務所模式"]
+mode = st.selectbox(
+    "選擇使用模式",
+    ["公司內部使用", "跨會計師事務所查核使用"]
 )
 
 
 # =========================
-# FIRM SETTINGS（鎖定邏輯）
+# SYSTEM LOGIC (關鍵：欄位鎖定)
 # =========================
 
-if mode == "玄武會計師事務所模式":
+if mode == "公司內部使用":
 
-    firm_name = "玄武會計師事務所"
-    partner = "玄武主持會計師"
-    report_date = datetime.date.today()
+    st.subheader("公司內部分析模式")
 
-    st.sidebar.text_input("會計師名稱（鎖定）", partner, disabled=True)
-    st.sidebar.date_input("查核日期（鎖定）", report_date, disabled=True)
+    company_name = st.text_input("公司名稱")
+
+    auditor_name = None
+    audit_date = None
+
+    system_date = datetime.date.today()
+
+    st.info("公司模式：會計師名稱與查核日期已鎖定（系統自動產生）")
+
 
 else:
 
-    firm_name = st.sidebar.text_input("事務所名稱", "玄武會計師事務所")
-    partner = st.sidebar.text_input("會計師名稱", "玄武主持會計師")
-    report_date = st.sidebar.date_input("查核日期")
+    st.subheader("會計師查核模式")
+
+    company_name = st.text_input("公司名稱")
+
+    auditor_name = st.text_input("會計師名稱")
+
+    audit_date = st.date_input("查核報告日期")
+
+    system_date = None
 
 
 # =========================
-# INPUT
+# FINANCIAL INPUT
 # =========================
-
-company = st.text_input("公司名稱", "ABC股份有限公司")
 
 revenue = st.number_input("營收", 0)
 profit = st.number_input("淨利", 0)
@@ -57,10 +65,10 @@ liabilities = st.number_input("負債總額", 0)
 
 
 # =========================
-# FINANCIAL ANALYSIS CORE
+# RATIO CALC
 # =========================
 
-def ratios():
+def calc():
 
     margin = profit / revenue if revenue else 0
     leverage = liabilities / assets if assets else 0
@@ -69,108 +77,98 @@ def ratios():
 
 
 # =========================
-# COMPANY MODE
+# REPORT ENGINE
 # =========================
 
-def company_analysis(margin, leverage):
+def company_report(margin, leverage):
 
-    result = []
-
-    if margin < 0.2:
-        result.append("建議改善獲利能力")
-
-    if leverage > 0.6:
-        result.append("財務槓桿偏高，建議調整資本結構")
-
-    return result
+    return [
+        "建議改善獲利能力",
+        "優化成本結構",
+        "加強現金流管理"
+    ]
 
 
-# =========================
-# AUDIT MODE
-# =========================
+def audit_report(margin, leverage):
 
-def audit_analysis(margin, leverage):
-
-    result = []
-
-    if margin < 0.2:
-        result.append("毛利率偏低，需評估收入認列合理性（ISA 240）")
-
-    if leverage > 0.6:
-        result.append("負債比例偏高，需執行持續經營評估（ISA 570）")
-
-    return result
+    return [
+        "需執行函證程序（應收帳款）",
+        "需評估持續經營能力（ISA 570）",
+        "需進一步實質性查核（ISA 330）"
+    ]
 
 
 # =========================
-# XUANWU MODE（更細查核）
+# MAIN EXECUTION
 # =========================
 
-def xuanwu_analysis(margin, leverage):
+if st.button("產出報告"):
 
-    result = []
-
-    result.append("進階財報拆解分析啟動")
-
-    if revenue > 10000000:
-        result.append("需進行收入分層測試（Revenue Cut-off Test）")
-
-    if liabilities / assets > 0.7:
-        result.append("高負債結構風險，需壓力測試（Stress Test）")
-
-    if margin < 0.15:
-        result.append("盈餘品質偏低，需測試應計項目（Accrual Testing）")
-
-    return result
-
-
-# =========================
-# EXECUTE
-# =========================
-
-if st.button("執行分析"):
-
-    margin, leverage = ratios()
+    margin, leverage = calc()
 
     st.subheader("分析結果")
 
-    if mode == "公司內部分析模式":
-        st.write(company_analysis(margin, leverage))
+    if mode == "公司內部使用":
 
-    elif mode == "會計師事務所模式":
-        st.write(audit_analysis(margin, leverage))
+        report_type = "公司內部管理建議報告書"
+
+        report_date_final = system_date
+
+        result = company_report(margin, leverage)
 
     else:
-        st.write(xuanwu_analysis(margin, leverage))
+
+        report_type = "會計師查核建議報告書"
+
+        report_date_final = audit_date
+
+        result = audit_report(margin, leverage)
+
+
+    st.write({
+        "公司": company_name,
+        "報告類型": report_type,
+        "毛利率": margin,
+        "槓桿": leverage,
+        "結果": result
+    })
 
 
 # =========================
-# REPORT EXPORT
+# WORD REPORT EXPORT
 # =========================
 
-if st.button("下載工作底稿"):
+if st.button("下載報告書"):
 
     doc = Document()
 
-    doc.add_heading("企業財報分析系統 v15", 0)
+    doc.add_heading("玄武會計師事務所｜企業報告書", 0)
 
-    doc.add_paragraph("模式：" + mode)
-    doc.add_paragraph("公司：" + company)
-    doc.add_paragraph("事務所：" + firm_name)
-    doc.add_paragraph("會計師：" + partner)
-    doc.add_paragraph("查核日期：" + str(report_date))
+    doc.add_paragraph("公司：" + str(company_name))
+    doc.add_paragraph("報告類型：" + report_type)
 
-    margin, leverage = ratios()
+    if mode == "公司內部使用":
+        doc.add_paragraph("系統產生日期：" + str(system_date))
+    else:
+        doc.add_paragraph("會計師：" + str(auditor_name))
+        doc.add_paragraph("查核日期：" + str(audit_date))
+
+    margin, leverage = calc()
 
     doc.add_paragraph(f"毛利率：{margin}")
     doc.add_paragraph(f"槓桿比率：{leverage}")
+
+    doc.add_paragraph("建議事項")
+
+    for r in result:
+        doc.add_paragraph("- " + r)
 
     buffer = io.BytesIO()
     doc.save(buffer)
     buffer.seek(0)
 
     st.download_button(
-        "下載Word工作底稿",
+        "下載 Word 報告",
         buffer,
-        file_name="v15_report.docx"
+        file_name="玄武企業報告_v17.docx"
     )

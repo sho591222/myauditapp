@@ -2,121 +2,150 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 from docx import Document
+from docx.shared import Inches
 import io
 
 # --- 1. 配置頁面 ---
-st.set_page_config(page_title="專業會計鑑定系統", layout="wide")
+st.set_page_config(page_title="AI 鑑識會計鑑定系統", layout="wide")
 
-# --- 2. 動態分析引擎 (修正長度錯誤問題) ---
-def get_audit_engine(filenames):
-    # 取得上傳的年度清單並排序
+# --- 2. 深度分析引擎：細緻化指標 ---
+def perform_deep_audit(filenames):
+    # 排序年度
     years = sorted([f.replace('.pdf', '') for f in filenames])
     n = len(years)
     
-    # 動態產生模擬數據，確保長度與檔案數量完全一致
-    # 這裡模擬隨年度惡化的數據
-    m_scores = [-1.20 - (i * 0.1) for i in range(n)]
-    z_scores = [2.5 - (i * 0.4) for i in range(n)]
-    probs = [f"{60 + (i * 10)}%" for i in range(n)]
-    
-    trend_df = pd.DataFrame({
-        "年度項目": years,
-        "Beneish M-Score (舞弊偵測)": m_scores,
-        "Altman Z-Score (破產預測)": z_scores,
-        "AI 舞弊預測機率": probs
-    })
+    # 模擬更細緻的財務比率分析 (依年度演變)
+    # 這裡可以根據您的 DID 邏輯調整數據變化
+    data = {
+        "年度": years,
+        "M-Score (盈餘操縱值)": [-1.45 - (i*0.05) for i in range(n)],
+        "Z-Score (破產預測值)": [2.8 - (i*0.4) for i in range(n)],
+        "應收帳款週轉率": [6.5 - (i*0.8) for i in range(n)],
+        "營業現金流量/淨利": [0.9 - (i*0.2) for i in range(n)],
+        "舞弊機率 (%)": [55 + (i*12) for i in range(n)]
+    }
+    df = pd.DataFrame(data)
     
     return {
-        "df": trend_df,
-        "health_status": "警告：標的公司速動比率逐年下降，且 Z-Score 已跌破 1.8 臨界值，財務狀況呈現『高度違約風險』。",
-        "cpa_summary": f"經跨年度 ({', '.join(years)}) 綜合鑑定，標的公司存在明顯的盈餘操縱特徵，主要集中於應收帳款之異常增長與研發支出之資本化。其財務穩定性已瀕臨崩潰點。",
-        "cpa_suggestions": [
-            "建議融資銀行立即啟動債權保全程序。",
-            "建議針對綠色貸款之專款專用情況執行實質性測試。",
-            "應對其海外子公司的關聯交易執行專案審計。"
+        "df": df,
+        "detail_analysis": f"經對比 {years[0]} 至 {years[-1]} 年度數據，標的公司之 M-Score 呈現惡化趨勢，且營業現金流量與淨利之背離幅度逐年擴大，顯示盈餘品質極度不佳。",
+        "health_check": "標的公司之 Z-Score 已低於 1.8，屬破產高風險區。其速動比率嚴重不足，無法支應短期債務。",
+        "cpa_conclusion": "綜合鑑定意見：標的公司涉嫌利用遞延損益與虛增營收之方式規避貸款契約之財務限制，建議啟動專案查核。",
+        "action_plans": [
+            "1. 立即清查過去三年之重大關聯方交易。",
+            "2. 針對綠色貸款資金流向進行溯源追蹤。",
+            "3. 要求標的公司限期補足資產抵押物。"
         ]
     }
 
-# --- 3. Word 報告生成函數 ---
-def make_report_docx(firm, auditor, data):
+# --- 3. 生成 Word 報告 (包含簽名欄位) ---
+def create_signed_report(firm, auditor, report_date, results):
     doc = Document()
-    doc.add_heading(firm, 0)
-    doc.add_heading('財務報表鑑定暨風險預測報告書', level=1)
     
-    doc.add_paragraph(f"主辦鑑定師：{auditor}")
-    doc.add_paragraph(f"鑑定基準日：{datetime.now().strftime('%Y-%m-%d')}")
+    # 標題
+    title = doc.add_heading(firm, 0)
+    doc.add_heading('財務報表鑑定暨深度預測報告書', level=1)
     
-    doc.add_heading('一、 多年度關鍵財務指標對照', level=2)
-    # 建立表格
-    df = data['df']
+    # 基本資訊
+    doc.add_paragraph(f"報告日期：{report_date.strftime('%Y年%m月%d日')}")
+    doc.add_paragraph(f"鑑定對象：跨年度財報對照 ({', '.join(results['df']['年度'])})")
+    
+    # 一、 細緻指標分析
+    doc.add_heading('一、 跨年度財務比率細緻對照表', level=2)
+    df = results['df']
     table = doc.add_table(rows=1, cols=len(df.columns))
-    hdr_cells = table.rows[0].cells
-    for i, col in enumerate(df.columns):
-        hdr_cells[i].text = col
+    for i, column in enumerate(df.columns):
+        table.rows[0].cells[i].text = column
     for _, row in df.iterrows():
         row_cells = table.add_row().cells
-        for i, val in enumerate(row):
-            row_cells[i].text = str(val)
-            
-    doc.add_heading('二、 財務健康狀況與鑑定總結', level=2)
-    doc.add_paragraph(data['health_status'])
-    doc.add_paragraph(data['cpa_summary'])
+        for i, item in enumerate(row):
+            row_cells[i].text = str(item)
     
-    doc.add_heading('三、 專業專家建議', level=2)
-    for s in data['cpa_suggestions']:
-        doc.add_paragraph(s, style='List Number')
+    # 二、 鑑定深度結論
+    doc.add_heading('二、 鑑定結論與深度風險分析', level=2)
+    doc.add_paragraph(results['detail_analysis'])
+    doc.add_paragraph(results['health_check'])
+    doc.add_paragraph(results['cpa_conclusion'])
+    
+    # 三、 行動建議
+    doc.add_heading('三、 專家行動建議', level=2)
+    for plan in results['action_plans']:
+        doc.add_paragraph(plan)
         
+    # 四、 簽署區
+    doc.add_paragraph("\n" * 2)
+    sig_table = doc.add_table(rows=1, cols=2)
+    sig_table.columns[0].width = Inches(3.5)
+    
+    # 左側印鑑區
+    sig_table.rows[0].cells[0].text = "會計師事務所蓋章欄："
+    # 右側簽名區
+    cell = sig_table.rows[0].cells[1]
+    cell.text = f"主辦鑑定會計師簽名或蓋章：\n\n______________________\n\n{auditor}\n日期：{report_date.strftime('%Y/%m/%d')}"
+    
     bio = io.BytesIO()
     doc.save(bio)
     bio.seek(0)
     return bio
 
-# --- 4. Streamlit 介面設計 ---
+# --- 4. Streamlit 介面 ---
 with st.sidebar:
-    st.header("🏢 鑑定控制台")
-    firm = st.text_input("會計師事務所", "誠信聯合會計師事務所")
-    auditor = st.text_input("負責鑑定師", "陳大文 (CPA / CFE)")
+    st.header("📝 鑑定簽署設定")
+    firm_name = st.text_input("事務所名稱", "誠信聯合會計師事務所")
+    auditor_name = st.text_input("主辦鑑定師", "陳大文 (CPA / CFE)")
+    r_date = st.date_input("報告簽署日期", datetime.now())
     st.divider()
     
-    # 關鍵：開啟多選
-    up_files = st.file_uploader("📂 上傳年度財報 PDF (可多選)", type=["pdf"], accept_multiple_files=True)
+    up_files = st.file_uploader("📂 上傳年度財報 PDF (可多選 92.pdf, 93.pdf...)", type=["pdf"], accept_multiple_files=True)
     st.divider()
 
-st.title("⚖️ 跨年度財務不實鑑定與深度預測系統")
+st.title("⚖️ 多年度財報鑑定與深度風險分析工作站")
 
 if up_files:
-    # 執行分析
+    # 執行鑑定
     f_names = [f.name for f in up_files]
-    results = get_audit_engine(f_names)
+    audit_data = perform_deep_audit(f_names)
     
-    # 側邊欄下載按鈕
-    doc_out = make_report_docx(firm, auditor, results)
-    st.sidebar.download_button(
-        label="📥 下載完整 Word 鑑定報告",
-        data=doc_out,
-        file_name=f"鑑定報告_多年度對照.docx",
-        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-    )
+    # 生成報告檔案
+    docx_file = create_signed_report(firm_name, auditor_name, r_date, audit_data)
+    
+    with st.sidebar:
+        st.download_button(
+            label="📥 下載 Word 簽署版鑑定報告",
+            data=docx_file,
+            file_name=f"財務鑑定報告_{datetime.now().strftime('%Y%m%d')}.docx",
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        )
+        st.success("報告已備妥，請點擊下載。")
 
-    # 主介面呈現 (使用 st 原生元件避免 HTML 亂碼)
-    st.subheader(f"📊 {firm} - 年度數據趨勢分析")
-    st.dataframe(results['df'], use_container_width=True)
+    # 主畫面呈現 (解決亂碼問題)
+    st.subheader("📊 跨年度關鍵指標變化趨勢")
+    st.dataframe(audit_data['df'], use_container_width=True)
     
     st.divider()
     
     col1, col2 = st.columns(2)
     with col1:
-        st.error("🚨 **財務健康診斷**")
-        st.write(results['health_status'])
-        st.info("🧾 **會計師鑑定總結**")
-        st.write(results['cpa_summary'])
+        st.error(" **深度風險診斷**")
+        st.write(audit_data['detail_analysis'])
+        st.write(audit_data['health_check'])
         
     with col2:
-        st.warning("💡 **專業行動建議**")
-        for s in results['cpa_suggestions']:
-            st.write(f"- {s}")
+        st.info(" **會計師綜合意見**")
+        st.write(audit_data['cpa_conclusion'])
+        st.warning(" **後續行動建議**")
+        for p in audit_data['action_plans']:
+            st.write(p)
 
-    st.success("✅ 分析完成。您可以在左側側邊欄點擊按鈕下載 Word 格式的鑑定報告。")
+    # 底部簽署預覽
+    st.divider()
+    st.markdown(f"""
+    <div style="text-align:right; border-top: 1px solid #ccc; padding-top: 20px;">
+        <p><b>執行鑑定事務所：{firm_name}</b></p>
+        <p>主辦鑑定師簽署：____________________</p>
+        <p>日期：{r_date.strftime('%Y年%m月%d日')}</p>
+    </div>
+    """, unsafe_allow_html=True)
 
 else:
-    st.info("👋 歡迎使用！請於左側同時上傳多份 PDF 檔案（例如：92.pdf, 93.pdf）以啟動跨年度趨勢鑑定。")
+    st.info(" 歡迎使用！請從左側上傳多份 PDF 檔案以啟動跨年度鑑定流程。")

@@ -37,3 +37,11 @@ pdfplumber
 matplotlib
 python-docx
 requests
+streamlit
+pandas
+numpy
+pdfplumber
+matplotlib
+networkx
+python-docx
+requests

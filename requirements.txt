@@ -5,3 +5,6 @@ python-docx
 pypdf
 fpdf2
 matplotlib
+streamlit
+pandas
+python-docx

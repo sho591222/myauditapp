@@ -166,7 +166,7 @@ def fraud_score(data):
 # UI
 # =========================
 
-st.title("Audit Analytics Platform v3（事務所級系統）")
+st.title("Audit Analytics Platform （事務所系統）")
 
 
 files = st.sidebar.file_uploader(

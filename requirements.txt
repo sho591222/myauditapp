@@ -19,3 +19,9 @@ numpy
 pdfplumber
 python-docx
 sqlalchemy
+streamlit
+pandas
+numpy
+pdfplumber
+python-docx
+sqlalchemy

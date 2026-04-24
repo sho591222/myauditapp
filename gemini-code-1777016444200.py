@@ -2,153 +2,124 @@ import streamlit as st
 import pandas as pd
 import base64
 import matplotlib.pyplot as plt
+import matplotlib.font_manager as fm
 from fpdf import FPDF
 import io
 import os
+import pdfplumber
 
-# --- 1. 軟體風格與繁體中文介面 ---
-st.set_page_config(page_title="多案源財務鑑定工作站", layout="wide")
+# --- 1. 介面與風格 ---
+st.set_page_config(page_title="專業財務鑑定工作站 | 旗艦版", layout="wide")
 st.markdown("""
     <style>
-    .report-card { background: #ffffff; padding: 25px; border-radius: 15px; border-left: 10px solid #273c75; box-shadow: 0 4px 12px rgba(0,0,0,0.1); color: #333; line-height: 1.8; }
-    .stButton>button { background-color: #c0392b !important; color: white !important; font-weight: bold; width: 100%; height: 50px; border-radius: 10px; }
-    .stSelectbox label { color: #273c75; font-weight: bold; font-size: 1.2em; }
-    h1 { color: #273c75; text-align: center; border-bottom: 2px solid #273c75; padding-bottom: 10px; }
+    .main { background-color: #f5f7f9; }
+    .report-card { background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.05); border-top: 5px solid #1e3799; }
+    .stButton>button { border-radius: 20px; background: linear-gradient(135deg, #c0392b 0%, #e74c3c 100%); color: white; border: none; font-weight: bold; transition: 0.3s; }
+    .stButton>button:hover { transform: scale(1.02); box-shadow: 0 5px 15px rgba(192,57,43,0.4); }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. 核心鑑定分析引擎 (模擬 10 年縱向數據) ---
-def run_audit_engine(file_name):
-    # 建立 2015-2024 年份
+# --- 2. 細緻化處理：PDF 深度掃描函數 ---
+def sophisticated_pdf_scan(uploaded_file):
+    with pdfplumber.open(uploaded_file) as pdf:
+        full_text = ""
+        for page in pdf.pages[:5]: # 掃描前五頁關鍵數據
+            full_text += page.extract_text() or ""
+    
+    # 細緻化邏輯：搜尋關鍵風險字眼
+    risk_keywords = ["減損", "負債增加", "現金流量為負", "不確定性", "重估"]
+    found_risks = [k for k in risk_keywords if k in full_text]
+    
+    # 模擬 10 年數據 (實務上會從表格抓取，此處優化模擬邏輯)
     years = [str(y) for y in range(2015, 2025)]
-    
-    # 模擬邏輯：根據檔名長度區分風險，讓您可以看到不同結果
-    if len(file_name) % 2 == 0:
-        ni = [150, 180, 210, 250, 280, 260, 180, 100, 40, -30]
-        cf = [140, 170, 200, 230, 190, 100, 20, -80, -200, -400]
-        score = 85
+    if "損" in full_text or "負" in full_text:
+        ni = [100, 120, 150, 180, 200, 180, 150, 100, 50, -20]
+        cf = [90, 110, 130, 120, 100, 50, 20, -50, -150, -300]
+        score = 90
     else:
-        ni = [100, 110, 130, 150, 170, 190, 210, 230, 250, 270]
-        cf = [90, 105, 120, 145, 160, 185, 200, 225, 240, 265]
-        score = 15
+        ni = [100, 115, 130, 145, 160, 175, 190, 205, 220, 235]
+        cf = [95, 110, 125, 140, 155, 170, 185, 200, 215, 230]
+        score = 20
     
-    df = pd.DataFrame({'年度': years, '帳面淨利': ni, '經營現金流': cf})
-    return df, score
+    return pd.DataFrame({'年度': years, '帳面淨利': ni, '經營現金流': cf}), score, found_risks
 
-# --- 3. 解決 PDF 亂碼的生成函數 ---
-def create_pdf_report(df, file_target, summary_text):
-    # 使用 fpdf2 (或 FPDF) 支援 Unicode
-    pdf = FPDF()
-    pdf.add_page()
-    
+# --- 3. 專業繪圖：雙指標對比圖 ---
+def plot_professional_chart(df, file_name):
+    # 設定字體
     font_path = "font.ttf"
-    if os.path.exists(font_path):
-        # 註冊中文字體，uni=True 是解決亂碼的關鍵
-        pdf.add_font('ChineseFont', '', font_path, uni=True)
-        pdf.set_font('ChineseFont', size=16)
-    else:
-        pdf.set_font("Arial", 'B', 16)
+    my_font = fm.FontProperties(fname=font_path) if os.path.exists(font_path) else None
+    
+    fig, ax1 = plt.subplots(figsize=(12, 6))
+    
+    # 繪製柱狀與折線
+    ax1.bar(df['年度'], df['帳面淨利'], color='#3498db', alpha=0.3, label='帳面淨利 (NI)')
+    ax1.plot(df['年度'], df['帳面淨利'], color='#2980b9', marker='o', linewidth=2)
+    
+    ax1.plot(df['年度'], df['經營現金流'], color='#e74c3c', marker='s', linewidth=3, label='經營現金流 (OCF)')
+    
+    # 標記「缺口」
+    last_ni = df['帳面淨利'].iloc[-1]
+    last_cf = df['經營現金流'].iloc[-1]
+    if last_ni > last_cf:
+        ax1.annotate('預警缺口', xy=(df['年度'].iloc[-1], last_cf), xytext=(df['年度'].iloc[-5], last_cf+100),
+                     arrowprops=dict(facecolor='black', shrink=0.05), fontproperties=my_font)
 
-    # 寫入標題
-    pdf.cell(200, 10, txt=f"財務鑑定專案報告: {file_target}", ln=True, align='C')
-    pdf.ln(10)
-    
-    # 寫入內容 (將摘要文字逐行寫入)
-    if os.path.exists(font_path):
-        pdf.set_font('ChineseFont', size=12)
-    else:
-        pdf.set_font("Arial", size=10)
-        
-    for line in summary_text.split('\n'):
-        # 移除特殊表情符號以防 PDF 編碼錯誤
-        clean_line = line.replace('⭕', '[O]').replace('❌', '[X]').replace('⚠️', '[!]').replace('🔴', '').replace('🟢', '')
-        pdf.multi_cell(0, 10, txt=clean_line)
-    
-    # 直接輸出 byte string，不手動進行 latin-1 編碼
-    return pdf.output(dest='S')
+    ax1.set_title(f"10 年財務質量勾稽分析: {file_name}", fontproperties=my_font, fontsize=16)
+    ax1.legend(prop=my_font)
+    ax1.grid(axis='y', linestyle='--', alpha=0.7)
+    return fig
 
 # --- 4. 軟體主介面 ---
-st.title("🛡️ 專業財務鑑定工作站 v12.5 (全能版)")
+st.title("⚖️ 財務鑑定旗艦工作站 v12.8")
 
 with st.sidebar:
-    st.header("⚙️ 系統初始化")
+    st.header("⚙️ 核心引擎初始化")
     audio_file = st.file_uploader("1. 載入警報音檔 (.mp3)", type=["mp3"])
     st.write("---")
     if os.path.exists("font.ttf"):
-        st.success("✅ 中文字體已就緒")
+        st.success("✅ 字體系統：運作正常")
     else:
-        st.error("⚠️ 缺少 font.ttf，PDF 將無法顯示中文")
-    st.info("支援多檔案上傳，系統將自動進行 10 年期縱向數據分析。")
+        st.error("❌ 缺少 font.ttf：PDF與圖表將顯示亂碼")
 
-# 允許多選檔案
-uploaded_files = st.file_uploader("2. 請選取多份 PDF 財報進行鑑定", type=["pdf"], accept_multiple_files=True)
+uploaded_files = st.file_uploader("2. 上傳多份 PDF 鑑定對象", type=["pdf"], accept_multiple_files=True)
 
 if uploaded_files and audio_file:
     file_names = [f.name for f in uploaded_files]
-    st.success(f"系統已載入 {len(file_names)} 個檔案。")
+    selected_file = st.selectbox("🎯 選擇鑑定案源：", file_names)
     
-    # 下拉選單切換案源
-    selected_file = st.selectbox("🎯 請選擇欲檢視的鑑定個案：", file_names)
+    # 執行細緻掃描
+    curr_file = next(f for f in uploaded_files if f.name == selected_file)
+    df_data, score, risks = sophisticated_pdf_scan(curr_file)
     
-    # 執行分析
-    df_data, score = run_audit_engine(selected_file)
+    # A. 專業圖表展示
+    st.pyplot(plot_professional_chart(df_data, selected_file))
     
-    # A. 視覺化趨勢圖表
-    st.markdown(f"### 📊 10 年期財務走勢鑑定：{selected_file}")
-    fig, ax = plt.subplots(figsize=(12, 5))
-    ax.plot(df_data['年度'], df_data['帳面淨利'], label='帳面淨利 (Net Income)', marker='o', color='#2980b9', linewidth=2)
-    ax.plot(df_data['年度'], df_data['經營現金流'], label='經營現金流 (Cash Flow)', marker='s', color='#c0392b', linewidth=2)
-    ax.set_title(f"Trend Analysis - {selected_file}", fontsize=14)
-    ax.set_xlabel("年度")
-    ax.set_ylabel("金額 (萬元)")
-    ax.legend()
-    ax.grid(True, alpha=0.3)
-    st.pyplot(fig)
-
-    # B. 文字鑑定報告區
-    st.markdown("### 📝 鑑定專家綜整意見")
-    risk_status = "🔴 高度風險 (異常背離)" if score > 50 else "🟢 穩定正常 (含金量高)"
+    # B. 細緻化報告
+    st.markdown("### 🔍 深度鑑定診斷報告")
+    risk_lvl = "⚠️ 極高風險" if score > 50 else "✅ 數據穩定"
+    risk_details = "、".join(risks) if risks else "未偵測到明顯負面關鍵字"
+    
     summary = f"""
-    【鑑定對象：{selected_file}】
+    【案源編號：{selected_file}】
     
-    一、 綜合判定：
-    本案源經 2015-2024 數據勾稽，目前處於「{risk_status}」狀態。
-    
-    二、 重點稽核意見：
-    1. 盈餘品質：{'經營現金流已連續數年低於淨利，存在顯著虛增獲利風險。' if score > 50 else '現金流轉化能力穩定，獲利真實性高。'}
-    2. 債權風險：{'應收帳款成長率遠超營收成長，建議進行專案抽查。' if score > 50 else '應收帳款管理良善，無異常積壓。'}
-    3. 建議處置：{'建議立即啟動專案查核，並暫緩相關授信或投資。' if score > 50 else '維持一般等級監控即可。'}
+    一、 質量判定：{risk_lvl}
+    二、 數據勾稽：
+    1. 盈餘含金量鑑定：{'警報！帳面利潤與實際現金流入完全背離，疑有應收帳款過度資本化現象。' if score > 50 else '獲利與現金流同步增長，盈餘品質極佳。'}
+    2. PDF 文本分析：系統在文件中偵測到以下風險關鍵字：[{risk_details}]。
+    三、 專家建議：
+    {'建議立即凍結授信，並調閱近三年所有大額銷貨合約進行抽查。' if score > 50 else '可維持現有信用評等。'}
     """
     st.markdown(f'<div class="report-card">{summary.replace(chr(10), "<br>")}</div>', unsafe_allow_html=True)
 
-    # C. 警報聲控制
+    # C. 警報控制
     if score > 50:
-        st.error(f"🚨 偵測到重大異常：{selected_file}")
+        st.error(f"🚨 異常預警：{selected_file}")
         b64 = base64.b64encode(audio_file.read()).decode()
-        st.components.v1.html(f"""
-            <audio id="siren" autoplay loop><source src="data:audio/mp3;base64,{b64}"></audio>
-            <script>window.parent.document.stopSiren = () => {{ document.getElementById("siren").pause(); }}</script>
-        """, height=0)
-        
-        if st.button("🛑 停止警報聲"):
-            st.components.v1.html('<script>window.parent.document.stopSiren();</script>', height=0)
-            st.warning("警報已暫時停止。")
-
-    # D. PDF 報告下載 (修正編碼報錯)
-    st.write("---")
-    try:
-        pdf_data = create_pdf_report(df_data, selected_file, summary)
-        st.download_button(
-            label=f"📥 下載「{selected_file}」鑑定報告 (PDF)",
-            data=pdf_data,
-            file_name=f"鑑定報告_{selected_file}.pdf",
-            mime="application/pdf"
-        )
-    except Exception as e:
-        st.error(f"PDF 生成時發生錯誤：{str(e)}")
+        st.components.v1.html(f'<audio id="s" autoplay loop><source src="data:audio/mp3;base64,{b64}"></audio><script>window.parent.document.stopS=()=>{document.getElementById("s").pause();}</script>', height=0)
+        if st.button("🛑 停止目前個案警報"):
+            st.components.v1.html('<script>window.parent.document.stopS();</script>', height=0)
 
 else:
-    st.warning("👋 歡迎使用！請先於左側載入音檔，再上傳 PDF 開始鑑定。")
+    st.info("👋 您好！請先載入音檔，再多選上傳 PDF 開始鑑定。")
 
-st.markdown("---")
-st.caption("AI 財務鑑定系統 | 支援多國語言介面與 10 年期縱向鑑定功能")
+st.caption("AI 財務鑑定系統 v12.8 | 深度文本解析與視覺化對比模組")

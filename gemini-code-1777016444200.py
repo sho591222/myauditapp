@@ -11,7 +11,7 @@ from docx import Document
 
 
 # =========================
-# 🔐 LOGIN SYSTEM（簡化 SaaS）
+#  LOGIN SYSTEM（簡化 SaaS）
 # =========================
 
 USERS = {
@@ -34,7 +34,7 @@ else:
 
 
 # =========================
-# 🏢 MODE CONTROL
+#  MODE CONTROL
 # =========================
 
 mode = st.selectbox(
@@ -44,7 +44,7 @@ mode = st.selectbox(
 
 
 # =========================
-# 📄 PDF UPLOAD
+#  PDF UPLOAD
 # =========================
 
 files = st.file_uploader(
@@ -74,7 +74,7 @@ def extract(text, key):
 
 
 # =========================
-# 📊 FINANCIAL ENGINE
+#  FINANCIAL ENGINE
 # =========================
 
 def ratio(r, p, a, l):
@@ -84,7 +84,7 @@ def ratio(r, p, a, l):
 
 
 # =========================
-# 🧠 FRAUD SCORING (0–100)
+#  FRAUD SCORING (0–100)
 # =========================
 
 def fraud_score(rev, profit, assets, liab):
@@ -106,8 +106,8 @@ def fraud_score(rev, profit, assets, liab):
     return min(score, 100)
 
 
-# =========================
-# 🧠 ISA 700 AUDIT OPINION GENERATOR
+# ========================
+#  ISA 700 AUDIT OPINION GENERATOR
 # =========================
 
 def isa700(score):
@@ -126,7 +126,7 @@ def isa700(score):
 
 
 # =========================
-# 🧠 RELATED PARTY GRAPH
+#  RELATED PARTY GRAPH
 # =========================
 
 def build_graph():
@@ -146,7 +146,7 @@ def build_graph():
 
 
 # =========================
-# ☁️ GOOGLE DRIVE（STUB）
+#  GOOGLE DRIVE（STUB）
 # =========================
 
 def google_drive_upload(report_name):
@@ -156,7 +156,7 @@ def google_drive_upload(report_name):
 
 
 # =========================
-# 📊 CHART
+#  CHART
 # =========================
 
 def draw(df):
@@ -209,14 +209,14 @@ if data:
     ))
 
     # =========================
-    # 📊 CHART
+    #  CHART
     # =========================
 
     st.subheader("財務趨勢圖")
     draw(df)
 
     # =========================
-    # 🧠 FRAUD SCORE
+    #  FRAUD SCORE
     # =========================
 
     st.subheader("財報造假風險分數")
@@ -232,7 +232,7 @@ if data:
     st.write("ISA 700 意見：", isa700(score))
 
     # =========================
-    # 🧠 RELATED PARTY GRAPH
+    #  RELATED PARTY GRAPH
     # =========================
 
     st.subheader("關係人交易圖（Graph）")
@@ -263,7 +263,7 @@ if data:
         ])
 
     # =========================
-    # ☁️ GOOGLE DRIVE EXPORT
+    #  GOOGLE DRIVE EXPORT
     # =========================
 
     if st.button("上傳Working Paper到雲端"):
@@ -271,7 +271,7 @@ if data:
         google_drive_upload("audit_report_v23.docx")
 
     # =========================
-    # 📄 REPORT EXPORT
+    #  REPORT EXPORT
     # =========================
 
     if st.button("產出查核報告"):

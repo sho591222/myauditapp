@@ -3,5 +3,4 @@ pandas
 python-docx
 matplotlib
 seaborn
-scipy
 pypdf

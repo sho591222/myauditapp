@@ -7,25 +7,24 @@ import matplotlib.pyplot as plt
 import pdfplumber
 from docx import Document
 import networkx as nx
-import io
 
 
 # =====================================================
-#  企業品牌（你要求玄武會計師事務所）
+# 🏢 系統品牌
 # =====================================================
 
 st.markdown("""
-#  玄武會計師事務所
-## 雲端 AI 財務查核與分析系統
+# 🏢 玄武會計師事務所
+## 雲端AI財務查核與分析系統
 ---
 """)
 
 
 # =====================================================
-# DATABASE（原版保留 + 擴充）
+# DATABASE
 # =====================================================
 
-conn = sqlite3.connect("audit.db", check_same_thread=False)
+conn = sqlite3.connect("audit_v51.db", check_same_thread=False)
 c = conn.cursor()
 
 c.execute("""
@@ -42,14 +41,18 @@ conn.commit()
 
 
 # =====================================================
-# AUTH（原架構保留）
+# 加密
 # =====================================================
 
 def hash_pw(pw):
     return hashlib.sha256(pw.encode()).hexdigest()
 
 
-def register(email, pw, role, company, audit_firm=""):
+# =====================================================
+# 註冊 / 登入
+# =====================================================
+
+def register(email, pw, role, company, audit_firm):
 
     c.execute(
         "INSERT INTO users VALUES (?,?,?,?,?)",
@@ -73,14 +76,17 @@ def get_user(email):
 
 
 # =====================================================
-#  PDF / Excel / Word（整合）
+# PDF / Excel / Word
 # =====================================================
 
 def parse_pdf(file):
+
     text = ""
+
     with pdfplumber.open(file) as pdf:
         for p in pdf.pages:
             text += p.extract_text() or ""
+
     return text
 
 
@@ -94,7 +100,7 @@ def parse_word(file):
 
 
 # =====================================================
-#  財報問答（你要求）
+# 財報問答
 # =====================================================
 
 def financial_qa(text):
@@ -103,16 +109,16 @@ def financial_qa(text):
         return "營收下降：可能市場萎縮或收入認列問題"
 
     if "存貨" in text:
-        return "存貨風險：可能有跌價或滯銷"
+        return "存貨風險：可能有滯銷或跌價損失"
 
     if "應收帳款" in text:
-        return "應收帳款風險：需注意呆帳"
+        return "應收帳款風險：可能存在呆帳"
 
     return "未發現重大異常"
 
 
 # =====================================================
-#  查核引擎（全部整合：掏空 / 財報不實 / crypto / 風險）
+# 查核引擎
 # =====================================================
 
 def audit_engine(text, df, role):
@@ -120,26 +126,48 @@ def audit_engine(text, df, role):
     issues = []
 
     if "虛增" in text:
-        issues.append(("財報不實", "可能存在收入虛增"))
+        issues.append(("財報不實", "收入可能虛增"))
 
     if "資金流向" in text:
-        issues.append(("掏空風險", "異常資金移轉"))
+        issues.append(("掏空風險", "資金異常移轉"))
 
     if "幣安" in text or "crypto" in text.lower():
-        issues.append(("加密資產", "交易風險需查核"))
+        issues.append(("加密資產風險", "交易需查核"))
 
     if df is not None and "營收" in df.columns:
+
         if df["營收"].iloc[-1] < df["營收"].iloc[0]:
-            issues.append(("營收下降", "趨勢惡化"))
+            issues.append(("營收下降", "趨勢下降"))
 
     if role == "會計師事務所":
-        issues.append(("查核程序", "需執行實質測試"))
+        issues.append(("查核程序", "需額外實質測試"))
 
     return issues
 
 
 # =====================================================
-#  圖表（原版保留）
+# ISA 700
+# =====================================================
+
+def isa700(issues, role):
+
+    text = "獨立會計師查核報告\n\n"
+
+    text += "查核範圍：財務報表查核\n\n"
+
+    for i in issues:
+        text += f"- {i}\n"
+
+    if len(issues) > 3:
+        text += "\n意見：保留意見\n"
+    else:
+        text += "\n意見：無保留意見\n"
+
+    return text
+
+
+# =====================================================
+# 圖表
 # =====================================================
 
 def chart():
@@ -161,7 +189,7 @@ def chart():
 
 
 # =====================================================
-#  關係人圖（保留）
+# 關係人圖
 # =====================================================
 
 def relation_graph():
@@ -178,33 +206,10 @@ def relation_graph():
 
 
 # =====================================================
-#  ISA 700（中文長文）
+# UI
 # =====================================================
 
-def isa700_report(issues, role):
-
-    text = "獨立會計師查核報告\n\n"
-
-    text += "查核範圍：財務報表查核\n\n"
-
-    text += "查核結果：\n"
-
-    for i in issues:
-        text += f"- {i}\n"
-
-    if len(issues) > 3:
-        text += "\n意見：保留意見\n"
-    else:
-        text += "\n意見：無保留意見\n"
-
-    return text
-
-
-# =====================================================
-# 🖥️ UI（保留原版 + 加強）
-# =====================================================
-
-st.title("四大AI財務審計系統 v50")
+st.title("v51 四大AI財務審計系統")
 
 mode = st.selectbox("模式", ["登入", "註冊"])
 
@@ -215,19 +220,25 @@ roles = ["公司使用者", "會計師事務所", "外部使用者"]
 
 
 # =====================================================
-# 註冊（保留原版）
+# 註冊（重點：條件互斥）
 # =====================================================
 
 if mode == "註冊":
 
     role = st.selectbox("身分", roles)
 
-    company = st.text_input("公司")
-
+    company = ""
     audit_firm = ""
 
+    # ✔ 關鍵：互斥邏輯（你要求的）
+    if role == "公司使用者":
+        company = st.text_input("公司名稱（必填）")
+
     if role == "會計師事務所":
-        audit_firm = st.text_input("事務所名稱（必填）")
+        audit_firm = st.text_input("會計師事務所名稱（必填）")
+
+    if role == "外部使用者":
+        st.info("外部使用者無需填公司或事務所")
 
     if st.button("註冊"):
         register(email, pw, role, company, audit_firm)
@@ -235,7 +246,7 @@ if mode == "註冊":
 
 
 # =====================================================
-# 登入（保留原版）
+# 登入
 # =====================================================
 
 if mode == "登入":
@@ -259,7 +270,7 @@ if mode == "登入":
 
 
 # =====================================================
-# 權限控制（外部限制）
+# 權限
 # =====================================================
 
 if not st.session_state.get("auth"):
@@ -274,7 +285,7 @@ st.write("身分：", role)
 
 
 # =====================================================
-# 上傳（PDF + Excel + Word）
+# 上傳
 # =====================================================
 
 pdf = st.file_uploader("PDF")
@@ -296,7 +307,7 @@ if excel:
 
 
 # =====================================================
-#  分析核心（全部整合）
+# 分析
 # =====================================================
 
 if text or df is not None:
@@ -313,15 +324,15 @@ if text or df is not None:
     st.subheader("財務圖表")
     st.pyplot(chart())
 
-    st.subheader("關係人架構")
+    st.subheader("關係人圖")
     relation_graph()
 
     st.subheader("ISA 700報告")
-    st.text(isa700_report(issues, role))
+    st.text(isa700(issues, role))
 
 
 # =====================================================
-#  外部使用者限制（保留原需求）
+# 外部限制
 # =====================================================
 
 if role == "外部使用者":

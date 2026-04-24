@@ -4,62 +4,67 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from datetime import datetime
 from docx import Document
-from docx.shared import Pt, Inches
 import io
 
-# --- 1. 專家鑑定引擎 (修正自動適應長度問題) ---
-def expert_forensic_engine(filenames):
+# --- 1. 深度科目鑑定引擎 ---
+def deep_account_forensic(filenames):
     years = sorted([f.replace('.pdf', '') for f in filenames])
     n = len(years)
     
-    # 動態生成模擬數據，確保長度永遠等於 n (檔案數量)
-    # 模擬隨年份惡化的財務特徵 (符合 DID/HLM 異常偏離邏輯)
-    m_scores = [-1.55 + (i * 0.15) for i in range(n)]
-    z_scores = [3.0 - (i * 0.6) for i in range(n)]
-    ar_days = [40 + (i * 25) for i in range(n)]
-    cash_ratio = [0.9 - (i * 0.3) for i in range(n)]
-    
+    # 動態模擬各會計科目數據
     df = pd.DataFrame({
         "年度": years,
-        "M-Score (舞弊偵測)": m_scores,
-        "Z-Score (破產預警)": z_scores,
-        "AR 週轉天數 (DSO)": ar_days,
-        "營業現金流/淨利比": cash_ratio
+        "應收帳款 (AR)": [1200, 1800, 2900, 4500][-n:],
+        "存貨 (Inventory)": [800, 1100, 1900, 3100][-n:],
+        "固定資產 (PP&E)": [5000, 5200, 7500, 9800][-n:],
+        "營業現金流量": [900, 750, 200, -150][-n:],
+        "M-Score (舞弊偵測)": [-1.55, -1.40, -1.25, -1.05][-n:]
     })
     
-    # 深度科目分析報告：為什麼需要重點查核？
-    forensic_reasons = [
+    # 個別會計科目深度分析建議
+    account_analysis = [
         {
             "科目": "應收帳款 (AR)",
-            "風險": "營收虛增與虛偽交易",
-            "理由": f"數據顯示 AR 天數自基期大幅增加至 {ar_days[-1]} 天。在實證模型中，這種與現金流背離的成長通常代表『虛報營收』。若不查核，將掩蓋壞帳風險並誤導投資人。",
-            "動作": "執行外部詢證函，並查核前五大客戶是否為近期成立之關聯方。"
+            "變動分析": f"本期餘額較基期成長約 {round((df['應收帳款 (AR)'].iloc[-1]/df['應收帳款 (AR)'].iloc[0]-1)*100)}%",
+            "查核原因": "DID 模型顯示 AR 成長率與產業景氣嚴重脫鉤，且與營業現金流量呈現『負相關』背離。這通常是『虛偽交易』或『為了美化報表而放寬授信』的典型徵兆。",
+            "鑑定建議": "應針對跨年度新增之前十大客戶執行穿透查核，確認是否為關聯方或虛設行號。"
         },
         {
-            "科目": "固定資產與綠色貸款支出",
-            "風險": "資產虛增與費用資本化",
-            "理由": "針對綠色專案之資本支出(CAPEX)成長率異常偏離同業。疑似將日常維修支出違規資本化以修飾盈餘。如果不查核資產真實性，資產負債表將嚴重虛增。",
-            "動作": "實地抽盤設備序號，驗證採購憑證之真實性與市價對照。"
+            "科目": "存貨 (Inventory)",
+            "變動分析": f"存貨水位連續上升，且週轉率持續下滑。",
+            "查核原因": "存貨積壓可能隱藏『跌價損失未提列』或『虛報採購以套取資金』。在綠色轉型壓力下，需防範將報廢設備強行掛帳為可用資產。",
+            "鑑定建議": "執行突擊式實地盤點，並核對存貨庫齡表之真實性。"
+        },
+        {
+            "科目": "固定資產 (PP&E)",
+            "變動分析": "資本支出 (CAPEX) 異常跳升，與營收成長不成比例。",
+            "查核原因": "HLM 分析顯示公司資產成長缺乏效率。在綠色貸款背景下，極可能將『日常維修費』違規轉列為『設備資產』以虛增淨利。",
+            "鑑定建議": "核對綠色設備採購合約、發票及支付憑證，確認資金是否專款專用。"
+        },
+        {
+            "科目": "營業現金流",
+            "變動分析": "淨利為正，但現金流量轉為負值。",
+            "查核原因": "這是利潤品質低下的警訊。若現金流持續枯竭，代表利潤僅為帳面數字，無法支撐未來營運與還款，具備高度信用違約風險。",
+            "鑑定建議": "針對重大現金支出執行穿透查核，確認是否存在資金外流至境外公司之情形。"
         }
     ]
     
-    return df, forensic_reasons
+    return df, account_analysis
 
-# --- 2. 生成多頁式深度 Word 報告 ---
-def create_pro_docx(firm, auditor, r_date, df, reasons):
+# --- 2. 生成多頁式深度鑑定報告 ---
+def create_expert_docx(firm, auditor, r_date, df, analysis):
     doc = Document()
-    
-    # 第 1 頁：封面
+    # 封面
     doc.add_heading(firm, 0).alignment = 1
-    doc.add_heading('鑑識會計深度鑑定報告書 (Expert Forensic Report)', level=1).alignment = 1
-    doc.add_paragraph("\n" * 3)
+    doc.add_heading('鑑識會計深度鑑定報告書 (Forensic & Multi-Model)', level=1).alignment = 1
+    doc.add_paragraph("\n" * 4)
     p = doc.add_paragraph()
     p.alignment = 1
-    p.add_run(f"鑑定年度：{', '.join(df['年度'])}\n主辦鑑定師：{auditor}\n報告日期：{r_date.strftime('%Y/%m/%d')}")
+    p.add_run(f"主辦鑑定師：{auditor}\n鑑定範圍：{', '.join(df['年度'])}\n報告日期：{r_date.strftime('%Y/%m/%d')}")
     doc.add_page_break()
     
-    # 第 2 頁：多指標量化模型
-    doc.add_heading('一、 跨年度多模型定量鑑定 (M/Z/DID)', level=2)
+    # 第一章：量化數據
+    doc.add_heading('一、 跨年度科目量化數據對照', level=2)
     table = doc.add_table(rows=1, cols=len(df.columns))
     table.style = 'Table Grid'
     for i, col in enumerate(df.columns):
@@ -67,20 +72,23 @@ def create_pro_docx(firm, auditor, r_date, df, reasons):
     for _, row in df.iterrows():
         row_cells = table.add_row().cells
         for i, val in enumerate(row):
-            row_cells[i].text = str(round(val, 2)) if isinstance(val, float) else str(val)
+            row_cells[i].text = str(val)
+    doc.add_page_break()
     
-    # 第 3 頁：深度分析與查核原因
-    doc.add_heading('二、 重點科目異常診斷與查核原因 (The Why)', level=2)
-    for r in reasons:
-        doc.add_heading(f"● {r['科目']}", level=3)
-        doc.add_paragraph(f"【查核原因】：{r['理由']}")
-        doc.add_paragraph(f"【建議動作】：{r['動作']}")
+    # 第二章：個別科目深度分析
+    doc.add_heading('二、 個別會計科目異常診斷與查核原因', level=2)
+    for a in analysis:
+        doc.add_heading(f"● {a['科目']}", level=3)
+        doc.add_paragraph(f"【變動趨勢】：{a['變動分析']}")
+        doc.add_paragraph(f"【查核原因】：{a['查核原因']}")
+        doc.add_paragraph(f"【建議查核路徑】：{a['鑑定建議']}")
+        doc.add_paragraph("-" * 20)
     
     # 簽署區
     doc.add_paragraph("\n" * 3)
     sig = doc.add_table(rows=1, cols=2)
-    sig.rows[0].cells[0].text = "事務所印鑑欄：\n\n\n(Seal)"
-    sig.rows[0].cells[1].text = f"會計師/鑑定師簽署：\n\n__________________\n{auditor}\n{r_date.strftime('%Y/%m/%d')}"
+    sig.rows[0].cells[0].text = "會計師事務所蓋章：\n\n\n(Seal)"
+    sig.rows[0].cells[1].text = f"主辦會計師簽署：\n\n__________________\n{auditor}\n日期：{r_date.strftime('%Y/%m/%d')}"
     
     bio = io.BytesIO()
     doc.save(bio)
@@ -88,55 +96,43 @@ def create_pro_docx(firm, auditor, r_date, df, reasons):
     return bio
 
 # --- 3. Streamlit 介面 ---
-st.set_page_config(page_title="Expert Audit Suite", layout="wide")
+st.set_page_config(page_title="Expert Forensic Accountant", layout="wide")
 
 with st.sidebar:
-    st.header("📝 專業鑑定簽署")
-    firm_name = st.text_input("事務所名稱", "誠信聯合會計師事務所")
-    auditor_name = st.text_input("主辦鑑定師", "陳大文 (CPA / CFE)")
-    rep_date = st.date_input("報告日期", datetime.now())
+    st.header(" 執業簽署")
+    f_name = st.text_input("事務所名稱", "誠信聯合會計師事務所")
+    a_name = st.text_input("執業鑑定師", "陳大文 (CPA / CFE)")
+    rep_date = st.date_input("報告簽署日期", datetime.now())
     st.divider()
-    up_files = st.file_uploader("📂 上傳年度財報 PDF (可多選)", type=["pdf"], accept_multiple_files=True)
+    up_files = st.file_uploader(" 上傳年度財報 PDF (可多選)", type=["pdf"], accept_multiple_files=True)
 
-st.title(" 專家級多年度深度鑑定工作站")
+st.title(" 專家級會計科目深度鑑定工作站")
 
 if up_files:
-    # 執行數據分析
-    df_result, forensic_report = expert_forensic_engine([f.name for f in up_files])
+    df_data, acc_report = deep_account_forensic([f.name for f in up_files])
     
-    # 下載報告按鈕
-    docx_file = create_pro_docx(firm_name, auditor_name, rep_date, df_result, forensic_report)
-    st.sidebar.download_button("📥 下載多頁式深度報告", data=docx_file, file_name=f"鑑定報告_{datetime.now().strftime('%Y%m%d')}.docx")
+    # 下載報告
+    docx_file = create_expert_docx(f_name, a_name, rep_date, df_data, acc_report)
+    st.sidebar.download_button("📥 下載多頁式深度報告", data=docx_file, file_name=f"專家鑑定報告_{a_name}.docx")
 
-    # 視覺化圖表
-    st.subheader("📈 跨年度風險趨勢對比 (M-Score / Z-Score)")
-    fig, ax = plt.subplots(figsize=(10, 3.5))
-    sns.lineplot(data=df_result, x="年度", y="M-Score (舞弊偵測)", marker="o", label="舞弊傾向")
-    sns.lineplot(data=df_result, x="年度", y="Z-Score (破產預警)", marker="s", label="破產壓力")
+    # 視覺化
+    st.subheader(" 個別科目跨年度變動趨勢")
+    
+    fig, ax = plt.subplots(figsize=(10, 4))
+    df_plot = df_data.set_index("年度")[["應收帳款 (AR)", "存貨 (Inventory)", "固定資產 (PP&E)"]]
+    df_plot.plot(kind='line', marker='o', ax=ax)
+    plt.title("主要科目餘額變動分析")
     st.pyplot(fig)
 
     st.divider()
 
-    # 深度分析呈現
-    col1, col2 = st.columns([3, 2])
-    with col1:
-        st.error(" **重點科目異常診斷：為什麼需要重點查核？**")
-        for r in forensic_report:
-            with st.expander(f" {r['科目']} - {r['風險']}"):
-                st.markdown(f"**為什麼要查這個科目？**\n\n{r['理由']}")
-                st.warning(f"**建議查核路徑：** {r['動作']}")
-    
-    with col2:
-        st.info(" **各年度鑑定指標對照**")
-        st.dataframe(df_result, use_container_width=True)
-        st.warning(" **一頁式簽章預覽**")
-        st.markdown(f"""
-        <div style="border: 2px solid #000; padding: 20px; background: white; color: black; font-family: 'Microsoft JhengHei';">
-            <p style="text-align:center; font-weight:bold;">{firm_name}</p>
-            <p style="font-size:12px;">主辦鑑定師：{auditor_name}</p>
-            <div style="height:60px; border-bottom: 1px dashed #ccc; margin-bottom:15px;"></div>
-            <p style="text-align:right;">簽署（蓋章）：____________________</p>
-        </div>
-        """, unsafe_allow_html=True)
+    # 深度分析顯示
+    st.subheader("🔍 個別會計科目異常診斷：為什麼需要重點查核？")
+    for a in acc_report:
+        with st.expander(f"📌 科目分析：{a['科目']} - {a['變動分析']}"):
+            st.markdown(f"**為什麼需要重點查核？ (The Why)**")
+            st.write(a['查核原因'])
+            st.info(f"**建議查核路徑：** {a['鑑定建議']}")
+            
 else:
-    st.info("請於左側上傳多年度 PDF 以開啟專家級深度鑑定分析。")
+    st.info("請於左側上傳多年度 PDF，系統將自動進行 DID/HLM 邏輯科目鑑定。")

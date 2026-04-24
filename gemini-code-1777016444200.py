@@ -5,54 +5,54 @@ import re
 import matplotlib.pyplot as plt
 from docx import Document
 import io
-import matplotlib.font_manager as fm
 import os
 import requests
+import matplotlib.font_manager as fm
 
 # =========================
-# 字體（保留你原本做法）
+# 字體（中文支援）
 # =========================
 
 @st.cache_resource
-def load_chinese_font():
-    font_url = "https://github.com/googlefonts/noto-cjk/raw/main/Sans/OTF/TraditionalChinese/NotoSansCJKtc-Regular.otf"
-    font_path = "NotoSansCJKtc-Regular.otf"
+def load_font():
+    url = "https://github.com/googlefonts/noto-cjk/raw/main/Sans/OTF/TraditionalChinese/NotoSansCJKtc-Regular.otf"
+    path = "NotoSansCJKtc-Regular.otf"
 
-    if not os.path.exists(font_path):
+    if not os.path.exists(path):
         try:
-            r = requests.get(font_url)
-            with open(font_path, "wb") as f:
+            r = requests.get(url)
+            with open(path, "wb") as f:
                 f.write(r.content)
         except:
             return None
-    return font_path
+    return path
 
 
-font_path = load_chinese_font()
+font_path = load_font()
 
 if font_path:
-    custom_font = fm.FontProperties(fname=font_path)
-    plt.rcParams["font.family"] = custom_font.get_name()
+    font = fm.FontProperties(fname=font_path)
+    plt.rcParams["font.family"] = font.get_name()
     fm.fontManager.addfont(font_path)
     plt.rcParams["axes.unicode_minus"] = False
 
 
 # =========================
-# UI（完全保留你原本風格）
+# UI
 # =========================
 
 st.set_page_config(layout="wide")
 
-st.title("專業鑑識會計鑑定系統：四大查核升級版")
+st.title("四大會計師查核分析系統（Audit Analytics System）")
 
 with st.sidebar:
-    st.header("鑑定專案資訊")
-    co_name = st.text_input("受調查公司名稱", "XX股份有限公司")
-    auditor = st.text_input("主辦會計師", "陳會計師")
-    firm = st.text_input("會計師事務所", "四大會計師事務所")
+    st.header("基本資料")
+    company = st.text_input("公司名稱", "XX股份有限公司")
+    auditor = st.text_input("會計師", "陳會計師")
+    firm = st.text_input("事務所", "四大會計師事務所")
 
     st.divider()
-    files = st.file_uploader("上傳年度財報 PDF", type=["pdf"], accept_multiple_files=True)
+    files = st.file_uploader("上傳財報 PDF", type=["pdf"], accept_multiple_files=True)
 
 
 # =========================
@@ -100,18 +100,19 @@ def financial_engine(d):
 
 
 # =========================
-# 查核引擎（四大核心）
+# 查核分析（四大核心）
 # =========================
 
 def forensic(curr, prev):
+
     flags = []
 
     if prev:
         if curr["ar"] > prev["ar"] * 1.3:
-            flags.append("應收帳款異常增加（收入可能提前認列）")
+            flags.append("應收帳款異常增加（可能提前認列收入）")
 
         if curr["inventory"] > prev["inventory"] * 1.3:
-            flags.append("存貨異常增加（可能滯銷或資產虛增）")
+            flags.append("存貨異常增加（可能滯銷或虛增資產）")
 
         if curr["cash"] < curr["net_income"]:
             flags.append("現金流弱於盈餘（盈餘品質疑慮）")
@@ -129,18 +130,19 @@ def forensic(curr, prev):
 def build_report(company, df, insights):
 
     doc = Document()
-    doc.add_heading("鑑識會計查核報告", 0)
+    doc.add_heading("四大會計師查核報告", 0)
 
     doc.add_paragraph(f"公司：{company}")
     doc.add_paragraph(f"事務所：{firm}")
     doc.add_paragraph(f"會計師：{auditor}")
 
-    doc.add_heading("分析結果", level=1)
+    doc.add_heading("財務與查核結果", level=1)
 
     for _, r in df.iterrows():
         doc.add_paragraph(f"{r['year']} | ROE:{r['roe']:.2f} | {r['flags']}")
 
     doc.add_heading("查核發現", level=1)
+
     for i in insights:
         doc.add_paragraph(i)
 
@@ -151,7 +153,7 @@ def build_report(company, df, insights):
 
 
 # =========================
-# 主流程（UI 保留你的風格）
+# 主流程
 # =========================
 
 if files:
@@ -162,40 +164,40 @@ if files:
 
     for f in sorted(files, key=lambda x: x.name):
 
-        raw = parse_pdf(f)
-
-        fin = financial_engine(raw)
-        flags = forensic(raw, prev)
+        data = parse_pdf(f)
+        fin = financial_engine(data)
+        flags = forensic(data, prev)
 
         results.append({
             "year": f.name.replace(".pdf", ""),
+            "cash": data["cash"],
+            "ar": data["ar"],
+            "inventory": data["inventory"],
             "roe": fin["ROE"],
-            "cash": raw["cash"],
-            "ar": raw["ar"],
-            "inventory": raw["inventory"],
             "flags": ", ".join(flags)
         })
 
         insights.extend(flags)
-        prev = raw
+        prev = data
 
     df = pd.DataFrame(results)
 
- 
+    # =========================
+    # Dashboard（保留你風格）
     # =========================
 
-    st.subheader(f"{co_name} 鑑定圖表分析")
+    st.subheader(f"{company} 財務查核分析")
 
     col1, col2 = st.columns(2)
 
     with col1:
-        fig1, ax1 = plt.subplots()
-        ax1.plot(df["year"], df["cash"], label="現金")
-        ax1.plot(df["year"], df["ar"], label="應收帳款")
-        ax1.plot(df["year"], df["inventory"], label="存貨")
-        ax1.set_title("資產結構趨勢")
-        ax1.legend()
-        st.pyplot(fig1)
+        fig, ax = plt.subplots()
+        ax.plot(df["year"], df["cash"], label="現金")
+        ax.plot(df["year"], df["ar"], label="應收")
+        ax.plot(df["year"], df["inventory"], label="存貨")
+        ax.set_title("資產結構變動")
+        ax.legend()
+        st.pyplot(fig)
 
     with col2:
         fig2, ax2 = plt.subplots()
@@ -204,32 +206,32 @@ if files:
         st.pyplot(fig2)
 
     # =========================
-    #  查核結果（新增）
+    # 查核結果
     # =========================
 
-    st.subheader("查核發現（Audit Findings）")
+    st.subheader("查核發現")
 
     for i in insights:
         st.write("•", i)
 
     # =========================
-    #  dataframe（保留你習慣）
+    # 表格
     # =========================
 
     st.subheader("詳細數據")
     st.dataframe(df)
 
     # =========================
-    #  Word 報告
+    # Word 報告
     # =========================
 
-    report = build_report(co_name, df, insights)
+    report = build_report(company, df, insights)
 
     st.sidebar.download_button(
         "下載查核報告",
         report,
-        file_name=f"{co_name}_audit_report.docx"
+        file_name=f"{company}_audit_report.docx"
     )
 
 else:
-    st.info("請上傳財報 PDF 開始分析")
+    st.info("請上傳 PDF 財報開始分析")

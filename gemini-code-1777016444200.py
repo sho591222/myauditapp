@@ -10,7 +10,14 @@ import requests
 import matplotlib.font_manager as fm
 
 # =========================
-# 字體（中文支援）
+# Google Sheets
+# =========================
+import gspread
+from google.oauth2.service_account import Credentials
+
+
+# =========================
+# 字體
 # =========================
 
 @st.cache_resource
@@ -38,15 +45,50 @@ if font_path:
 
 
 # =========================
+# Google Sheets 連線
+# =========================
+
+def connect_sheet():
+    scope = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive"
+    ]
+
+    creds = Credentials.from_service_account_file(
+        "service_account.json",
+        scopes=scope
+    )
+
+    client = gspread.authorize(creds)
+    sheet = client.open("Audit_Log").sheet1
+    return sheet
+
+
+def save_to_sheet(sheet, company, df, insights):
+
+    for _, r in df.iterrows():
+        sheet.append_row([
+            company,
+            r["year"],
+            r["cash"],
+            r["ar"],
+            r["inventory"],
+            r["roe"],
+            r["flags"]
+        ])
+
+    for i in insights:
+        sheet.append_row([company, "INSIGHT", i])
+
+
+# =========================
 # UI
 # =========================
 
 st.set_page_config(layout="wide")
-
-st.title("四大會計師查核分析系統（Audit Analytics System）")
+st.title("四大會計師查核分析系統（Cloud Audit System）")
 
 with st.sidebar:
-    st.header("基本資料")
     company = st.text_input("公司名稱", "XX股份有限公司")
     auditor = st.text_input("會計師", "陳會計師")
     firm = st.text_input("事務所", "四大會計師事務所")
@@ -100,7 +142,7 @@ def financial_engine(d):
 
 
 # =========================
-# 查核分析（四大核心）
+# 查核引擎
 # =========================
 
 def forensic(curr, prev):
@@ -112,7 +154,7 @@ def forensic(curr, prev):
             flags.append("應收帳款異常增加（可能提前認列收入）")
 
         if curr["inventory"] > prev["inventory"] * 1.3:
-            flags.append("存貨異常增加（可能滯銷或虛增資產）")
+            flags.append("存貨異常增加（可能滯銷或資產虛增）")
 
         if curr["cash"] < curr["net_income"]:
             flags.append("現金流弱於盈餘（盈餘品質疑慮）")
@@ -183,7 +225,7 @@ if files:
     df = pd.DataFrame(results)
 
     # =========================
-    # Dashboard（保留你風格）
+    # Dashboard
     # =========================
 
     st.subheader(f"{company} 財務查核分析")
@@ -195,7 +237,7 @@ if files:
         ax.plot(df["year"], df["cash"], label="現金")
         ax.plot(df["year"], df["ar"], label="應收")
         ax.plot(df["year"], df["inventory"], label="存貨")
-        ax.set_title("資產結構變動")
+        ax.set_title("資產結構趨勢")
         ax.legend()
         st.pyplot(fig)
 
@@ -206,7 +248,7 @@ if files:
         st.pyplot(fig2)
 
     # =========================
-    # 查核結果
+    # 查核發現
     # =========================
 
     st.subheader("查核發現")
@@ -214,11 +256,7 @@ if files:
     for i in insights:
         st.write("•", i)
 
-    # =========================
-    # 表格
-    # =========================
-
-    st.subheader("詳細數據")
+    st.subheader("詳細資料")
     st.dataframe(df)
 
     # =========================
@@ -232,6 +270,17 @@ if files:
         report,
         file_name=f"{company}_audit_report.docx"
     )
+
+    # =========================
+    # ☁️ 存到 Google Sheets
+    # =========================
+
+    if st.button("存到雲端（Google Sheets）"):
+
+        sheet = connect_sheet()
+        save_to_sheet(sheet, company, df, insights)
+
+        st.success("已成功寫入 Google Sheets Audit Log")
 
 else:
     st.info("請上傳 PDF 財報開始分析")

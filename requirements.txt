@@ -36,3 +36,11 @@ openpyxl
 networkx
 Pillow
 lxml
+streamlit
+pandas
+matplotlib
+pdfplumber
+python-docx
+openpyxl
+networkx
+Pillow

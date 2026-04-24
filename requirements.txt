@@ -3,3 +3,4 @@ pandas
 pdfplumber
 fpdf2
 matplotlib
+fonttools

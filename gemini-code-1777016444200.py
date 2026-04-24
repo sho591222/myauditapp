@@ -2,20 +2,57 @@ import streamlit as st
 import pandas as pd
 import pdfplumber
 import re
-import matplotlib.pyplot as plt
+from datetime import datetime
 from docx import Document
 import io
 
 
 # =========================
-# PDF PARSER
+# ROLE SYSTEM
 # =========================
 
-def extract(text, keywords):
+role = st.sidebar.selectbox(
+    "使用者角色",
+    ["Company User", "Auditor (CPA)", "Viewer"]
+)
+
+
+# =========================
+# CASE MANAGEMENT
+# =========================
+
+company = st.sidebar.text_input("Company Name", "ABC Corp")
+case_id = f"{company}_{datetime.now().strftime('%Y%m%d')}"
+
+
+# =========================
+# AUDIT TRAIL LOG
+# =========================
+
+audit_log = []
+
+
+# =========================
+# PDF PARSER (with trace)
+# =========================
+
+def extract(text, keywords, file_name):
+
     for k in keywords:
         m = re.search(rf"{k}.*?([\d,]+)", text, re.DOTALL)
+
         if m:
-            return float(m.group(1).replace(",", ""))
+            value = float(m.group(1).replace(",", ""))
+
+            audit_log.append({
+                "case": case_id,
+                "file": file_name,
+                "keyword": k,
+                "value": value
+            })
+
+            return value
+
     return 0
 
 
@@ -29,26 +66,25 @@ def parse_pdf(file):
 
     return {
         "bs": {
-            "cash": extract(text, ["現金"]),
-            "ar": extract(text, ["應收帳款"]),
-            "inventory": extract(text, ["存貨"]),
-            "assets": extract(text, ["資產總計"]),
-            "liabilities": extract(text, ["負債總計"]),
-            "equity": extract(text, ["權益總計"]),
+            "cash": extract(text, ["現金"], file.name),
+            "ar": extract(text, ["應收帳款"], file.name),
+            "inventory": extract(text, ["存貨"], file.name),
+            "assets": extract(text, ["資產總計"], file.name),
+            "liabilities": extract(text, ["負債總計"], file.name),
+            "equity": extract(text, ["權益總計"], file.name),
         },
         "is": {
-            "revenue": extract(text, ["營業收入"]),
-            "gross_profit": extract(text, ["營業毛利"]),
-            "net_income": extract(text, ["本期淨利"]),
+            "revenue": extract(text, ["營業收入"], file.name),
+            "net_income": extract(text, ["本期淨利"], file.name),
         },
         "cf": {
-            "ocf": extract(text, ["營業活動現金流量"])
+            "ocf": extract(text, ["營業活動現金流量"], file.name)
         }
     }
 
 
 # =========================
-# FINANCIAL ANALYSIS
+# FINANCIAL ENGINE
 # =========================
 
 def financial(data):
@@ -60,129 +96,88 @@ def financial(data):
     assets = bs["assets"] if bs["assets"] else 1
     equity = bs["equity"] if bs["equity"] else 1
 
-    roe = is_["net_income"] / equity
-    roa = is_["net_income"] / assets
-    margin = is_["net_income"] / is_["revenue"] if is_["revenue"] else 0
-    ocf_ratio = cf["ocf"] / is_["net_income"] if is_["net_income"] else 0
-    leverage = bs["liabilities"] / equity
-
     return {
-        "roe": roe,
-        "roa": roa,
-        "margin": margin,
-        "ocf_ratio": ocf_ratio,
-        "leverage": leverage
+        "roe": is_["net_income"] / equity,
+        "roa": is_["net_income"] / assets,
+        "margin": is_["net_income"] / is_["revenue"] if is_["revenue"] else 0,
+        "ocf_ratio": cf["ocf"] / is_["net_income"] if is_["net_income"] else 0,
+        "leverage": bs["liabilities"] / equity
     }
 
 
 # =========================
-# AUDIT ENGINE (四大版本)
+# COMPANY MODE
 # =========================
 
-def audit_engine(curr, prev=None):
+def company_analysis(fin):
 
-    alerts = []
+    insights = []
 
-    bs = curr["bs"]
-    is_ = curr["is"]
-    cf = curr["cf"]
+    if fin["ocf_ratio"] < 1:
+        insights.append("現金轉換能力偏弱")
 
-    if is_["net_income"] > 0 and cf["ocf"] < 0:
-        alerts.append("盈餘品質風險：淨利為正但OCF為負")
+    if fin["leverage"] > 2:
+        insights.append("槓桿偏高，建議調整資本結構")
+
+    return insights
+
+
+# =========================
+# AUDIT MODE (ISA style)
+# =========================
+
+def audit_analysis(data, prev):
+
+    findings = []
+
+    if data["is"]["net_income"] > 0 and data["cf"]["ocf"] < 0:
+        findings.append("盈餘品質疑慮（ISA 315）")
 
     if prev:
-        if bs["ar"] > prev["bs"]["ar"] * 1.3:
-            alerts.append("應收帳款異常增加（收入認列風險）")
+        if data["bs"]["ar"] > prev["bs"]["ar"] * 1.3:
+            findings.append("應收帳款異常增加（收入認列風險）")
 
-        if bs["inventory"] > prev["bs"]["inventory"] * 1.3:
-            alerts.append("存貨異常增加（可能虛增資產）")
+        if data["bs"]["inventory"] > prev["bs"]["inventory"] * 1.3:
+            findings.append("存貨異常增加（可能估值風險）")
 
-        if bs["cash"] < prev["bs"]["cash"] * 0.5:
-            alerts.append("現金大幅下降（流動性風險）")
-
-    leverage = bs["liabilities"] / bs["equity"] if bs["equity"] else 0
-
-    if leverage > 2:
-        alerts.append("高財務槓桿風險")
-
-    return alerts
+    return findings
 
 
 # =========================
 # FRAUD MODEL
 # =========================
 
-def fraud_model(curr, prev=None):
+def fraud_score(data):
 
     score = 0
 
-    bs = curr["bs"]
-    is_ = curr["is"]
-
-    if prev:
-        if prev["bs"]["ar"] > 0:
-            if bs["ar"] / prev["bs"]["ar"] > 1.2:
-                score += 1
-
-        if prev["bs"]["inventory"] > 0:
-            if bs["inventory"] / prev["bs"]["inventory"] > 1.2:
-                score += 1
-
-    if is_["revenue"] > 0:
-        if (is_["gross_profit"] / is_["revenue"]) < 0.2:
+    if data["is"]["revenue"] > 0:
+        margin = data["is"]["net_income"] / data["is"]["revenue"]
+        if margin < 0.2:
             score += 1
 
-    if curr["cf"]["ocf"] < curr["is"]["net_income"]:
+    if data["cf"]["ocf"] < data["is"]["net_income"]:
         score += 1
 
-    level = "High" if score >= 3 else "Medium" if score == 2 else "Low"
-
-    return score, level
+    return score
 
 
 # =========================
-# BENCHMARK (同業比較)
+# UI
 # =========================
 
-industry = {
-    "roe": 0.12,
-    "margin": 0.25,
-    "leverage": 1.5
-}
+st.title("Audit Analytics Platform v3（事務所級系統）")
 
-
-# =========================
-# STREAMLIT UI
-# =========================
-
-st.set_page_config(layout="wide")
-
-st.title("四大正式企業財報分析系統 v2")
-
-
-# =========================
-# MODE SELECT
-# =========================
-
-mode = st.sidebar.selectbox(
-    "分析模式",
-    ["公司內部分析 (Management)", "會計師事務所分析 (Audit)"]
-)
-
-
-company = st.sidebar.text_input("公司名稱", "XX股份有限公司")
-auditor = st.sidebar.text_input("會計師", "CPA")
-firm = st.sidebar.text_input("事務所", "Big4 Firm")
 
 files = st.sidebar.file_uploader(
-    "上傳財報 PDF",
+    "Upload Financial Statements",
     type="pdf",
     accept_multiple_files=True
 )
 
 
 # =========================
-# MAIN PROCESS
+# MAIN ENGINE
 # =========================
 
 if files:
@@ -195,121 +190,74 @@ if files:
         data = parse_pdf(f)
         fin = financial(data)
 
-        alerts = audit_engine(data, prev)
-        score, level = fraud_model(data, prev)
+        if role == "Company User":
+            output = company_analysis(fin)
+        else:
+            output = audit_analysis(data, prev)
 
-        benchmark_flags = []
-
-        if fin["roe"] < industry["roe"]:
-            benchmark_flags.append("ROE低於產業水準")
-
-        if fin["margin"] < industry["margin"]:
-            benchmark_flags.append("毛利率低於產業")
-
-        if fin["leverage"] > industry["leverage"]:
-            benchmark_flags.append("槓桿高於產業")
+        score = fraud_score(data)
 
         results.append({
-            "year": f.name,
-            "revenue": data["is"]["revenue"],
-            "net_income": data["is"]["net_income"],
-            "cash": data["bs"]["cash"],
-            "ar": data["bs"]["ar"],
-            "inventory": data["bs"]["inventory"],
-            "ROE": fin["roe"],
-            "ROA": fin["roa"],
-            "margin": fin["margin"],
-            "leverage": fin["leverage"],
-            "audit_flags": alerts,
-            "fraud_score": score,
-            "fraud_level": level,
-            "benchmark": benchmark_flags
+            "file": f.name,
+            "output": output,
+            "fraud_score": score
         })
 
         prev = data
 
+
     df = pd.DataFrame(results)
 
-
-    # =========================
-    # DASHBOARD
-    # =========================
-
-    st.subheader("財務分析 Dashboard")
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        fig, ax = plt.subplots()
-        ax.plot(df["year"], df["revenue"], label="營收")
-        ax.plot(df["year"], df["net_income"], label="淨利")
-        ax.set_title("損益趨勢")
-        ax.legend()
-        st.pyplot(fig)
-
-    with col2:
-        fig2, ax2 = plt.subplots()
-        ax2.plot(df["year"], df["ROE"], label="ROE")
-        ax2.plot(df["year"], df["ROA"], label="ROA")
-        ax2.set_title("獲利能力")
-        ax2.legend()
-        st.pyplot(fig2)
-
-
-    # =========================
-    # MODE OUTPUT
-    # =========================
-
-    st.subheader("分析結果")
+    st.subheader("Analysis Result")
 
     for r in results:
 
-        st.write(r["year"])
+        st.write(r["file"])
 
-        if mode.startswith("公司內部"):
-            st.write("Management Insights:")
-            st.write(r["benchmark"])
+        if role == "Company User":
+            st.write("Management Insight:", r["output"])
         else:
-            st.write("Audit Findings:")
-            st.write(r["audit_flags"])
-            st.write("Fraud:", r["fraud_level"], r["fraud_score"])
+            st.write("Audit Findings:", r["output"])
+
+        st.write("Fraud Score:", r["fraud_score"])
 
 
-    # =========================
-    # DATA TABLE
-    # =========================
-
-    st.subheader("完整財務資料")
+    st.subheader("Working Paper Data")
 
     st.dataframe(df)
 
 
     # =========================
-    # WORD REPORT
+    # WORKING PAPER EXPORT
     # =========================
 
     doc = Document()
-    doc.add_heading("四大企業財報分析報告 v2", 0)
-
-    doc.add_paragraph(f"公司：{company}")
-    doc.add_paragraph(f"事務所：{firm}")
-    doc.add_paragraph(f"會計師：{auditor}")
-    doc.add_paragraph(f"分析模式：{mode}")
+    doc.add_heading("Audit Working Paper v3", 0)
+    doc.add_paragraph(f"Case ID: {case_id}")
 
     for r in results:
-        doc.add_paragraph(f"{r['year']}")
-        doc.add_paragraph(f"Audit: {r['audit_flags']}")
-        doc.add_paragraph(f"Fraud: {r['fraud_level']} ({r['fraud_score']})")
+        doc.add_paragraph(f"{r['file']}")
+        doc.add_paragraph(str(r["output"]))
 
     buf = io.BytesIO()
     doc.save(buf)
     buf.seek(0)
 
     st.sidebar.download_button(
-        "下載查核報告",
+        "Download Working Paper",
         buf,
-        file_name=f"{company}_audit_v2.docx"
+        file_name=f"{case_id}_WP.docx"
     )
 
+
 else:
-    st.info("請上傳財報 PDF")
+    st.info("Please upload financial PDF files")
+
+
+# =========================
+# AUDIT TRAIL VIEW
+# =========================
+
+st.subheader("Audit Trail")
+
+st.dataframe(pd.DataFrame(audit_log))

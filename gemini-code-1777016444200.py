@@ -1,174 +1,347 @@
 import streamlit as st
 import pandas as pd
+import pdfplumber
+import matplotlib.pyplot as plt
+import requests
+import io
+import re
 import datetime
 from docx import Document
-import io
 
 
 # =========================
-# SYSTEM CONFIG
+# UI（保持你的原本風格）
 # =========================
 
 st.set_page_config(layout="wide")
-st.title("玄武會計師事務所｜企業雙流程系統 v17")
+st.title("玄武會計師事務所｜財報 + 查核智慧系統 v21")
 
 
 # =========================
-# MODE SELECT (三大區塊)
+# MODE
 # =========================
 
 mode = st.selectbox(
-    "選擇使用模式",
-    ["公司內部使用", "跨會計師事務所查核使用"]
+    "使用模式",
+    ["公司內部分析", "會計師事務所查核"]
 )
 
 
 # =========================
-# SYSTEM LOGIC (關鍵：欄位鎖定)
+# INPUT
 # =========================
 
-if mode == "公司內部使用":
+files = st.file_uploader(
+    "上傳財報 PDF（可多期）",
+    type="pdf",
+    accept_multiple_files=True
+)
 
-    st.subheader("公司內部分析模式")
-
-    company_name = st.text_input("公司名稱")
-
-    auditor_name = None
-    audit_date = None
-
-    system_date = datetime.date.today()
-
-    st.info("公司模式：會計師名稱與查核日期已鎖定（系統自動產生）")
-
-
-else:
-
-    st.subheader("會計師查核模式")
-
-    company_name = st.text_input("公司名稱")
-
-    auditor_name = st.text_input("會計師名稱")
-
-    audit_date = st.date_input("查核報告日期")
-
-    system_date = None
+url = st.text_input("或輸入PDF網址")
 
 
 # =========================
-# FINANCIAL INPUT
+# PDF PARSER
 # =========================
 
-revenue = st.number_input("營收", 0)
-profit = st.number_input("淨利", 0)
-assets = st.number_input("資產總額", 0)
-liabilities = st.number_input("負債總額", 0)
+def parse_pdf(file):
+
+    text = ""
+
+    with pdfplumber.open(file) as pdf:
+        for p in pdf.pages:
+            text += p.extract_text() or ""
+
+    return text
+
+
+def extract(text, key):
+
+    m = re.search(rf"{key}.*?([\d,]+)", text)
+
+    if m:
+        return float(m.group(1).replace(",", ""))
+
+    return 0
+
+
+def load_url(url):
+
+    r = requests.get(url)
+    return io.BytesIO(r.content)
 
 
 # =========================
-# RATIO CALC
+# CORE FINANCIAL ENGINE
 # =========================
 
-def calc():
+def ratio(rev, profit, assets, liab):
 
-    margin = profit / revenue if revenue else 0
-    leverage = liabilities / assets if assets else 0
+    margin = profit / rev if rev else 0
+    leverage = liab / assets if assets else 0
 
     return margin, leverage
 
 
+def financial_statements(rev, profit, assets, liab):
+
+    return (
+        {"營收": rev, "淨利": profit},
+        {"資產": assets, "負債": liab, "權益": assets - liab},
+        profit * 1.1
+    )
+
+
 # =========================
-# REPORT ENGINE
+# CHART
 # =========================
 
-def company_report(margin, leverage):
+def chart(df):
+
+    fig, ax = plt.subplots()
+
+    ax.plot(df["year"], df["revenue"], label="營收")
+    ax.plot(df["year"], df["profit"], label="淨利")
+
+    ax.set_title("財務趨勢")
+    ax.legend()
+
+    st.pyplot(fig)
+
+
+# =========================
+# COMPANY MODE
+# =========================
+
+def company_analysis(margin, leverage):
+
+    res = []
+
+    if margin < 0.2:
+        res.append("獲利能力偏弱")
+
+    if leverage > 0.6:
+        res.append("財務槓桿過高")
+
+    return res
+
+
+# =========================
+# AUDIT MODE
+# =========================
+
+def audit_analysis(margin, leverage):
 
     return [
-        "建議改善獲利能力",
-        "優化成本結構",
-        "加強現金流管理"
+        "應收帳款 → 函證",
+        "營收 → cut-off",
+        "存貨 → 盤點",
+        "負債 → completeness",
+        "ISA 240 舞弊風險"
     ]
 
 
-def audit_report(margin, leverage):
+# =========================
+# 🧠 ① 股譜分析
+# =========================
 
-    return [
-        "需執行函證程序（應收帳款）",
-        "需評估持續經營能力（ISA 570）",
-        "需進一步實質性查核（ISA 330）"
-    ]
+def stock_structure_analysis(rev, profit, assets):
+
+    r = []
+
+    if assets > rev * 2:
+        r.append("資產效率異常")
+
+    if profit / assets < 0.05:
+        r.append("ROA偏低")
+
+    return r
 
 
 # =========================
-# MAIN EXECUTION
+# 🧠 ② 掏空分析
 # =========================
 
-if st.button("產出報告"):
+def fraud_analysis(rev, profit, assets, liab):
 
-    margin, leverage = calc()
+    r = []
 
-    st.subheader("分析結果")
+    if profit < 0 and assets > 0:
+        r.append("資產增加但持續虧損")
 
-    if mode == "公司內部使用":
+    if liab > assets * 0.8:
+        r.append("高負債風險")
 
-        report_type = "公司內部管理建議報告書"
+    if rev > 0 and profit / rev < 0.05:
+        r.append("營收高但利潤偏低")
 
-        report_date_final = system_date
-
-        result = company_report(margin, leverage)
-
-    else:
-
-        report_type = "會計師查核建議報告書"
-
-        report_date_final = audit_date
-
-        result = audit_report(margin, leverage)
+    return r
 
 
-    st.write({
-        "公司": company_name,
-        "報告類型": report_type,
-        "毛利率": margin,
-        "槓桿": leverage,
-        "結果": result
+# =========================
+# 🧠 ③ 財報品質分析
+# =========================
+
+def earnings_quality(rev, profit, assets):
+
+    r = []
+
+    if profit > rev * 0.3:
+        r.append("利潤異常偏高")
+
+    if assets > rev * 3:
+        r.append("資產過重需減損測試")
+
+    return r
+
+
+# =========================
+# DATA COLLECT
+# =========================
+
+data = []
+
+
+if files:
+
+    for f in files:
+
+        text = parse_pdf(f)
+
+        data.append({
+            "year": f.name,
+            "revenue": extract(text, "營業收入"),
+            "profit": extract(text, "本期淨利"),
+            "assets": extract(text, "資產總額"),
+            "liabilities": extract(text, "負債總額")
+        })
+
+
+if url:
+
+    file = load_url(url)
+    text = parse_pdf(file)
+
+    data.append({
+        "year": "URL",
+        "revenue": extract(text, "營業收入"),
+        "profit": extract(text, "本期淨利"),
+        "assets": extract(text, "資產總額"),
+        "liabilities": extract(text, "負債總額")
     })
 
 
 # =========================
-# WORD REPORT EXPORT
+# MAIN PROCESS
 # =========================
 
-if st.button("下載報告書"):
+if data:
 
-    doc = Document()
+    df = pd.DataFrame(data)
 
-    doc.add_heading("玄武會計師事務所｜企業報告書", 0)
+    st.subheader("財務資料")
+    st.dataframe(df)
 
-    doc.add_paragraph("公司：" + str(company_name))
-    doc.add_paragraph("報告類型：" + report_type)
+    df["margin"], df["leverage"] = zip(*df.apply(
+        lambda x: ratio(x["revenue"], x["profit"], x["assets"], x["liabilities"]),
+        axis=1
+    ))
 
-    if mode == "公司內部使用":
-        doc.add_paragraph("系統產生日期：" + str(system_date))
-    else:
-        doc.add_paragraph("會計師：" + str(auditor_name))
-        doc.add_paragraph("查核日期：" + str(audit_date))
 
-    margin, leverage = calc()
+    # CHART
+    chart(df)
 
-    doc.add_paragraph(f"毛利率：{margin}")
-    doc.add_paragraph(f"槓桿比率：{leverage}")
 
-    doc.add_paragraph("建議事項")
+    # FINANCIAL STATEMENTS
+    st.subheader("財務報表分析")
 
-    for r in result:
-        doc.add_paragraph("- " + r)
+    for i in range(len(df)):
 
-    buffer = io.BytesIO()
-    doc.save(buffer)
-    buffer.seek(0)
+        isd, bsd, cf = financial_statements(
+            df.loc[i, "revenue"],
+            df.loc[i, "profit"],
+            df.loc[i, "assets"],
+            df.loc[i, "liabilities"]
+        )
 
-    st.download_button(
-        "下載 Word 報告",
-        buffer,
-        file_name="玄武企業報告_v17.docx"
-    )
+        st.write(df.loc[i, "year"])
+        st.write("IS", isd)
+        st.write("BS", bsd)
+        st.write("CF", cf)
+
+
+    # =========================
+    # MODE OUTPUT
+    # =========================
+
+    st.subheader("分析建議")
+
+    for i in range(len(df)):
+
+        m = df.loc[i, "margin"]
+        l = df.loc[i, "leverage"]
+
+        if mode == "公司內部分析":
+            st.write(company_analysis(m, l))
+        else:
+            st.write(audit_analysis(m, l))
+
+
+    # =========================
+    # ADVANCED MODULES (你要的全部)
+    # =========================
+
+    st.subheader("股譜分析")
+
+    for r in stock_structure_analysis(
+        df["revenue"].mean(),
+        df["profit"].mean(),
+        df["assets"].mean()
+    ):
+        st.write(r)
+
+
+    st.subheader("掏空分析")
+
+    for r in fraud_analysis(
+        df["revenue"].mean(),
+        df["profit"].mean(),
+        df["assets"].mean(),
+        df["liabilities"].mean()
+    ):
+        st.write(r)
+
+
+    st.subheader("財報品質分析")
+
+    for r in earnings_quality(
+        df["revenue"].mean(),
+        df["profit"].mean(),
+        df["assets"].mean()
+    ):
+        st.write(r)
+
+
+    # =========================
+    # WORD REPORT
+    # =========================
+
+    if st.button("產出完整報告"):
+
+        doc = Document()
+
+        doc.add_heading("玄武會計師事務所｜完整財報與查核報告 v21", 0)
+
+        doc.add_paragraph("模式：" + mode)
+
+        doc.add_paragraph(df.to_string())
+
+        buffer = io.BytesIO()
+        doc.save(buffer)
+        buffer.seek(0)
+
+        st.download_button(
+            "下載報告",
+            buffer,
+            file_name="v21_full_report.docx"
+        )

@@ -11,14 +11,16 @@ import io
 # =========================
 
 st.set_page_config(layout="wide")
-st.title("玄武會計師事務所｜雲端企業查核系統 v13")
+
+st.title("玄武會計師事務所｜雙用途企業查核系統 v14")
 
 
 # =========================
-# ENGAGEMENT HEADER
+# BRAND HEADER
 # =========================
 
 firm_name = "玄武會計師事務所"
+
 
 st.sidebar.subheader("查核資訊")
 
@@ -39,7 +41,7 @@ if "login" not in st.session_state:
     st.session_state.login = False
 
 
-st.sidebar.subheader("登入系統")
+st.sidebar.subheader("登入")
 
 user = st.sidebar.text_input("帳號")
 pw = st.sidebar.text_input("密碼", type="password")
@@ -54,19 +56,18 @@ if st.sidebar.button("登入"):
 
 
 # =========================
-# DATABASE LAYER
+# DATABASE
 # =========================
 
-conn = sqlite3.connect("v13.db", check_same_thread=False)
+conn = sqlite3.connect("v14.db", check_same_thread=False)
 c = conn.cursor()
 
 c.execute("""
-CREATE TABLE IF NOT EXISTS evidence (
+CREATE TABLE IF NOT EXISTS data (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     company TEXT,
     account TEXT,
     value REAL,
-    risk TEXT,
     created_at TEXT
 )
 """)
@@ -75,79 +76,48 @@ conn.commit()
 
 
 # =========================
-# EVIDENCE ENGINE v6
-# =========================
-
-class EvidenceEngine:
-
-    def create(self, company, account, value):
-
-        risk = "High" if value > 1000000 else "Low"
-
-        c.execute("""
-            INSERT INTO evidence (company, account, value, risk, created_at)
-            VALUES (?, ?, ?, ?, ?)
-        """, (
-            company,
-            account,
-            value,
-            risk,
-            str(datetime.datetime.now())
-        ))
-
-        conn.commit()
-
-        return {
-            "company": company,
-            "account": account,
-            "value": value,
-            "risk": risk,
-            "isa": self.map_isa(account),
-            "procedure": self.procedure(account),
-            "conclusion": self.conclusion(value)
-        }
-
-
-    def map_isa(self, account):
-
-        if account == "應收帳款":
-            return ["ISA 315", "ISA 505", "ISA 330"]
-
-        if account == "營收":
-            return ["ISA 240"]
-
-        return ["ISA 330"]
-
-
-    def procedure(self, account):
-
-        if account == "應收帳款":
-            return ["函證", "期後收款測試", "合約查核"]
-
-        if account == "存貨":
-            return ["盤點", "成本測試"]
-
-        return ["基本查核程序"]
-
-
-    def conclusion(self, value):
-
-        if value > 1000000:
-            return "需進一步實質性查核"
-        return "可接受"
-
-
-engine = EvidenceEngine()
-
-
-# =========================
-# ROLE SYSTEM
+# ROLE ENGINE（核心）
 # =========================
 
 def mode():
+
     if st.session_state.role == "audit":
         return "事務所模式"
     return "公司模式"
+
+
+# =========================
+# COMPANY MODE（禁止 audit 用語）
+# =========================
+
+def company_analysis(value):
+
+    result = []
+
+    if value < 1000000:
+        result.append("營運規模可持續優化")
+
+    if value > 5000000:
+        result.append("建議檢視資本配置效率")
+
+    return result
+
+
+# =========================
+# AUDIT MODE（查核模式）
+# =========================
+
+def audit_analysis(value):
+
+    result = []
+
+    if value > 1000000:
+        result.append("應收帳款增加需執行函證程序")
+
+    if value > 5000000:
+        result.append("需進一步執行實質性查核程序")
+
+    return result
 
 
 # =========================
@@ -156,7 +126,7 @@ def mode():
 
 if st.session_state.login:
 
-    st.subheader("系統模式：" + mode())
+    st.subheader("目前模式：" + mode())
 
     company = st.text_input("公司名稱", "ABC股份有限公司")
 
@@ -166,20 +136,29 @@ if st.session_state.login:
 
     if st.button("執行分析"):
 
-        result = engine.create(company, account, value)
+        # store data
+        c.execute("""
+            INSERT INTO data (company, account, value, created_at)
+            VALUES (?, ?, ?, ?)
+        """, (company, account, value, str(datetime.datetime.now())))
 
-        st.subheader("查核結果")
+        conn.commit()
 
-        st.write(result)
+        st.subheader("分析結果")
+
+        if mode() == "公司模式":
+            st.write(company_analysis(value))
+        else:
+            st.write(audit_analysis(value))
 
 
 # =========================
 # DATABASE VIEW
 # =========================
 
-st.subheader("查核資料庫")
+st.subheader("系統資料庫")
 
-df = pd.read_sql_query("SELECT * FROM evidence", conn)
+df = pd.read_sql_query("SELECT * FROM data", conn)
 
 st.dataframe(df)
 
@@ -192,7 +171,7 @@ if st.button("下載工作底稿"):
 
     doc = Document()
 
-    doc.add_heading("雲端企業查核工作底稿 v13", 0)
+    doc.add_heading("雙用途企業查核系統 v14", 0)
 
     doc.add_paragraph("Engagement Information")
     doc.add_paragraph("會計師事務所：" + firm_name)
@@ -200,7 +179,7 @@ if st.button("下載工作底稿"):
     doc.add_paragraph("查核日期：" + str(report_date))
     doc.add_paragraph("模式：" + mode())
 
-    doc.add_paragraph("查核資料")
+    doc.add_paragraph("資料")
 
     for row in df.values:
         doc.add_paragraph(str(row))
@@ -212,5 +191,5 @@ if st.button("下載工作底稿"):
     st.download_button(
         "下載工作底稿",
         buffer,
-        file_name="玄武會計師事務所_v13.docx"
+        file_name="玄武會計師事務所_v14.docx"
     )
